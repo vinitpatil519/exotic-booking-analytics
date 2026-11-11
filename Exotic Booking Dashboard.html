@@ -149,6 +149,8 @@ tfoot td{font-weight:600;border-top:1px solid var(--ink3);border-bottom:0}
 .ctlbar{background:var(--panel);border:1px solid var(--grid);border-radius:6px;padding:10px 14px;margin-bottom:14px}
 .ctl{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--ink2)}
 .ctl .seg button{height:28px}
+svg .flow{opacity:.38;transition:opacity .15s}svg .flow:hover{opacity:.75}
+.kpi td{min-width:84px}.kpi th{white-space:normal;min-width:84px}
 .dl dt{font-weight:600}.dl dd{margin:0;color:var(--ink2)}
 .empty{padding:60px 20px;text-align:center;color:var(--ink2);font-size:16px}
 .acts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
@@ -382,8 +384,9 @@ const clip = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
 const niceMax = v => { if (v <= 0) return 1; const p = 10 ** Math.floor(Math.log10(v)), m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; };
 const ticks = (min, max, n = 5) => { const step0 = (max - min) / n || 1, p = 10 ** Math.floor(Math.log10(step0)), m = step0 / p, step = (m < 1.5 ? 1 : m < 3 ? 2 : m < 7 ? 5 : 10) * p; const out = []; for (let t = Math.ceil(min / step) * step; t <= max + step * 1e-9; t += step) out.push(+t.toPrecision(10)); return out; };
 
+const textW = t => String(t).length * 6.9 + 10;
 function bridge(w, steps) {
-  const lw = Math.min(w * .42, 250), vw = 88, x0 = lw, pw = Math.max(w - lw - vw, 40), rh = 34, bh = 22, H = steps.length * rh + 4;
+  const lw = Math.min(w * .42, 250), vw = Math.max(88, ...steps.map(s => textW(s.total ? money(s.v) : sMoney(s.v)))), x0 = lw, pw = Math.max(w - lw - vw, 40), rh = 34, bh = 22, H = steps.length * rh + 4;
   let run = 0, peak = 0; steps.forEach(s => { run = s.total ? s.v : run + s.v; peak = Math.max(peak, run); });
   const sx = v => v / (peak || 1) * pw; run = 0; let out = '', prevEnd = null;
   steps.forEach((s, i) => { const y = i * rh + (rh - bh) / 2; const start = s.total ? 0 : run, end = s.total ? s.v : run + s.v; const a = Math.min(start, end), b = Math.max(start, end);
@@ -406,7 +409,7 @@ function divBars(w, rows, {fmt = pts, dim, labelW} = {}) {
   return `<svg width="${w}" height="${H}" role="img" aria-label="Diverging bar chart">${out}</svg>`;
 }
 function pairBars(w, rows, {fmt = money, dim, labelW} = {}) {
-  const lw = labelW || Math.min(w * .3, 150), vw = 76, pw = Math.max(w - lw - vw, 40), rh = 30, bh = 10, H = rows.length * rh + 4, mx = Math.max(...rows.map(r => Math.max(r.a, r.b)), 1), sx = v => v / mx * pw;
+  const lw = labelW || Math.min(w * .3, 150), vw = Math.max(76, ...rows.map(r => textW(fmt(r.b)))), pw = Math.max(w - lw - vw, 40), rh = 30, bh = 10, H = rows.length * rh + 4, mx = Math.max(...rows.map(r => Math.max(r.a, r.b)), 1), sx = v => v / mx * pw;
   let out = '';
   rows.forEach((r, i) => { const y = i * rh + 4; const tip = tipAttr([r.label, `SS25: ${fmt(r.a)}`, `SS26: ${fmt(r.b)}`, r.tip || '']);
     out += `<g ${tip} ${drillAttr(dim, r.label)}><rect x="0" y="${y - 3}" width="${w}" height="${rh}" fill="transparent"/>`;
@@ -423,7 +426,7 @@ function columns(w, cats, {fmt = v => num(v), yFmt = v => num(v), H = 240} = {})
   cats.forEach((c, i) => { const cx = ml + band * i + band / 2; const yA = sy(c.a), yB = sy(c.b);
     out += `<g ${tipAttr([c.label, `SS25: ${fmt(c.a)}`, `SS26: ${fmt(c.b)}`])}><rect x="${cx - band / 2}" y="${mt}" width="${band}" height="${ph}" fill="transparent"/>`;
     out += `<rect x="${cx - bw - 1}" y="${mt + yA}" width="${bw}" height="${ph - yA}" rx="3" fill="var(--s25)"/><rect x="${cx + 1}" y="${mt + yB}" width="${bw}" height="${ph - yB}" rx="3" fill="var(--s26)"/>`;
-    out += `<text class="tick" text-anchor="middle" x="${cx}" y="${H - mb + 18}">${esc(c.label)}</text></g>`; });
+    const every = Math.max(1, Math.ceil((Math.max(...cats.map(k => String(k.label).length)) * 6.6 + 8) / band)); out += `${i % every === 0 ? `<text class="tick" text-anchor="middle" x="${cx}" y="${H - mb + 18}">${esc(c.label)}</text>` : ''}</g>`; });
   out += `<line x1="${ml}" x2="${w}" y1="${mt + ph}" y2="${mt + ph}" stroke="var(--axis)"/>`;
   return `<svg width="${w}" height="${H}" role="img" aria-label="Column chart">${out}</svg>`;
 }
@@ -432,7 +435,7 @@ function lorenz(w, s25, s26, H = 280) {
   const curve = a => { const s = a.filter(v => v > 0).sort((x, y) => y - x), T = s.reduce((p, v) => p + v, 0); let c = 0; const pts_ = [[0, 0]]; s.forEach((v, i) => { c += v; pts_.push([(i + 1) / s.length * 100, c / T * 100]); }); return pts_; };
   const a = curve(s25), b = curve(s26); const path = p => 'M' + p.map(q => `${sx(q[0]).toFixed(1)} ${sy(q[1]).toFixed(1)}`).join('L');
   const at = (p, x) => { const n = p.length - 1; return p[Math.min(n, Math.round(x / 100 * n))][1]; };
-  let out = ''; [0, 25, 50, 75, 100].forEach(t => { out += `<line x1="${ml}" x2="${w - mr}" y1="${sy(t)}" y2="${sy(t)}" stroke="var(--grid)"/><text class="tick" text-anchor="end" x="${ml - 6}" y="${sy(t) + 4}">${t}%</text><text class="tick" text-anchor="middle" x="${sx(t)}" y="${H - mb + 16}">${t}%</text>`; });
+  let out = ''; [0, 25, 50, 75, 100].forEach(t => { out += `<line x1="${ml}" x2="${w - mr}" y1="${sy(t)}" y2="${sy(t)}" stroke="var(--grid)"/><text class="tick" text-anchor="end" x="${ml - 6}" y="${sy(t) + 4}">${t}%</text><text class="tick" text-anchor="${t === 100 ? 'end' : t === 0 ? 'start' : 'middle'}" x="${sx(t)}" y="${H - mb + 16}">${t}%</text>`; });
   out += `<text class="tick" text-anchor="middle" x="${ml + pw / 2}" y="${H - 4}">Share of active dealers, largest first</text>`;
   out += `<line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(100)}" y2="${sy(100)}" stroke="var(--axis)"/>`;
   out += `<path d="${path(a)}" fill="none" stroke="var(--s25)" stroke-width="2" stroke-linejoin="round"/><path d="${path(b)}" fill="none" stroke="var(--s26)" stroke-width="2" stroke-linejoin="round"/>`;
@@ -444,17 +447,18 @@ function scatter(w, pts_, o) {
   const sx = o.xLog ? v => ml + (Math.log10(v) - o.x0) / (o.x1 - o.x0) * pw : v => ml + (v - o.x0) / (o.x1 - o.x0) * pw;
   const sy = o.yLog ? v => mt + ph - (Math.log10(v) - o.y0) / (o.y1 - o.y0) * ph : v => mt + ph - (v - o.y0) / (o.y1 - o.y0) * ph;
   let out = '';
-  o.xt.forEach(t => out += `<line x1="${sx(t)}" x2="${sx(t)}" y1="${mt}" y2="${mt + ph}" stroke="var(--grid)"/><text class="tick" text-anchor="middle" x="${sx(t)}" y="${mt + ph + 16}">${o.xf(t)}</text>`);
+  o.xt.forEach(t => out += `<line x1="${sx(t)}" x2="${sx(t)}" y1="${mt}" y2="${mt + ph}" stroke="var(--grid)"/><text class="tick" text-anchor="${sx(t) > w - mr - 14 ? 'end' : 'middle'}" x="${sx(t)}" y="${mt + ph + 16}">${o.xf(t)}</text>`);
   o.yt.forEach(t => out += `<line x1="${ml}" x2="${w - mr}" y1="${sy(t)}" y2="${sy(t)}" stroke="var(--grid)"/><text class="tick" text-anchor="end" x="${ml - 6}" y="${sy(t) + 4}">${o.yf(t)}</text>`);
   out += `<text class="tick" text-anchor="middle" x="${ml + pw / 2}" y="${H - 6}">${esc(o.xTitle)}</text><text class="tick" transform="translate(11 ${mt + ph / 2}) rotate(-90)" text-anchor="middle">${esc(o.yTitle)}</text>`;
   if (o.diag) out += `<line x1="${sx(o.diag[0])}" y1="${sy(o.diag[0])}" x2="${sx(o.diag[1])}" y2="${sy(o.diag[1])}" stroke="var(--ink3)"/>`;
   if (o.xRef != null) out += `<line x1="${sx(o.xRef)}" x2="${sx(o.xRef)}" y1="${mt}" y2="${mt + ph}" stroke="var(--ink3)"/>`;
+  (o.hLines || []).forEach(l => { if (l.y >= o.y0 && l.y <= o.y1) out += `<line x1="${ml}" x2="${w - mr}" y1="${sy(l.y)}" y2="${sy(l.y)}" stroke="var(--ink3)" stroke-dasharray="4 3"/>${l.t ? `<text class="tick" x="${w - mr - 4}" text-anchor="end" y="${sy(l.y) - 4}">${esc(l.t)}</text>` : ''}`; });
   if (o.yRef != null) out += `<line x1="${ml}" x2="${w - mr}" y1="${sy(o.yRef)}" y2="${sy(o.yRef)}" stroke="var(--ink3)"/>`;
   (o.corners || []).forEach(c => { out += `<text class="tick" x="${c.x === 'r' ? w - mr - 4 : ml + 4}" text-anchor="${c.x === 'r' ? 'end' : 'start'}" y="${c.y === 't' ? mt + 12 : mt + ph - 5}">${esc(c.t)}</text>`; });
   const inX = v => o.xLog ? Math.max(10 ** o.x0, Math.min(10 ** o.x1, v)) : Math.max(o.x0, Math.min(o.x1, v));
   const inY = v => o.yLog ? Math.max(10 ** o.y0, Math.min(10 ** o.y1, v)) : Math.max(o.y0, Math.min(o.y1, v));
   pts_.forEach(p => { out += `<circle cx="${sx(inX(p.x)).toFixed(1)}" cy="${sy(inY(p.y)).toFixed(1)}" r="${p.r || 4}" fill="${p.c || 'var(--s26)'}" fill-opacity="${p.op || .62}" stroke="var(--panel)" stroke-width="1" ${tipAttr(p.tip)} ${drillAttr(o.dim, p.label || '')}/><circle cx="${sx(inX(p.x)).toFixed(1)}" cy="${sy(inY(p.y)).toFixed(1)}" r="11" fill="transparent" ${tipAttr(p.tip)} ${drillAttr(o.dim, p.label || '')} tabindex="-1"/>`; });
-  const placed = []; (o.labels || []).forEach(p => { const x = sx(inX(p.x)), yy = sy(inY(p.y)), right = x < w - 130, bw = p.label.length * 6.2 + 8, bx = right ? x + 7 : x - 7 - bw; if (placed.some(q => Math.abs(q.y - yy) < 14 && bx < q.x + q.w && q.x < bx + bw)) return; placed.push({x: bx, y: yy, w: bw}); out += `<text class="lab" style="font-size:11.5px" x="${x + (right ? 7 : -7)}" text-anchor="${right ? 'start' : 'end'}" y="${sy(inY(p.y)) + 4}">${esc(p.label)}</text>`; });
+  const placed = (o.corners || []).map(c => { const bw = c.t.length * 6.2 + 8; return {x: c.x === 'r' ? w - mr - 4 - bw : ml + 4, y: (c.y === 't' ? mt + 12 : mt + ph - 5) - 4, w: bw}; }); (o.labels || []).forEach(p => { const x = sx(inX(p.x)), yy = sy(inY(p.y)), right = x < w - 130, bw = p.label.length * 6.2 + 8, bx = right ? x + 7 : x - 7 - bw; if (placed.some(q => Math.abs(q.y - yy) < 14 && bx < q.x + q.w && q.x < bx + bw)) return; placed.push({x: bx, y: yy, w: bw}); out += `<text class="lab" style="font-size:11.5px" x="${x + (right ? 7 : -7)}" text-anchor="${right ? 'start' : 'end'}" y="${sy(inY(p.y)) + 4}">${esc(p.label)}</text>`; });
   return `<svg width="${w}" height="${H}" role="img" aria-label="${esc(o.aria || 'Scatter plot')}">${out}</svg>`;
 }
 function dumbbell(w, rows, {fmt = v => '₹' + num(v), dim} = {}) {
@@ -509,15 +513,15 @@ function treemap(w, items, {H = 340, dim} = {}) {
     const g = r.g, a = g == null ? .85 : Math.min(Math.abs(g) / .5, 1) * .7 + .15, hue = g != null && g < 0 ? 'var(--loss-rgb)' : 'var(--gain-rgb)', ink = a > .5 ? '#fff' : 'var(--ink)';
     const tip = tipAttr([r.label, `SS26: ${money(r.v)}, ${pct(r.v / T)} of total`, `SS25: ${money(r.v25)}`, `Growth: ${g == null ? 'new in SS26' : sPct(g)}`]);
     out += `<g ${tip} ${drillAttr(dim, r.key)}><rect x="${r.x.toFixed(1)}" y="${r.y.toFixed(1)}" width="${Math.max(r.w - 2, .5).toFixed(1)}" height="${Math.max(r.h - 2, .5).toFixed(1)}" rx="3" fill="rgba(${hue},${a.toFixed(3)})"/>`;
-    if (r.w > 58 && r.h > 28) { const n = Math.floor((r.w - 12) / 6.8), line2 = `${cfmt(r.v)} · ${g == null ? 'new' : sPct(g, 0)}`;
+    if (r.w > 58 && r.h > 28) { const n = Math.floor((r.w - 14) / 7.6), line2 = `${cfmt(r.v)} · ${g == null ? 'new' : sPct(g, 0)}`;
       out += `<text x="${(r.x + 7).toFixed(1)}" y="${(r.y + 17).toFixed(1)}" style="fill:${ink};font-weight:600">${esc(clip(r.label, n))}</text>`;
-      if (r.h > 46 && line2.length * 6.4 < r.w - 12) out += `<text x="${(r.x + 7).toFixed(1)}" y="${(r.y + 33).toFixed(1)}" style="fill:${ink};font-size:11.5px">${esc(line2)}</text>`; }
+      if (r.h > 46 && line2.length * 6.9 < r.w - 14) out += `<text x="${(r.x + 7).toFixed(1)}" y="${(r.y + 33).toFixed(1)}" style="fill:${ink};font-size:11.5px">${esc(line2)}</text>`; }
     out += '</g>'; });
   return `<svg width="${w}" height="${H}" role="img" aria-label="Treemap">${out}</svg>`;
 }
 const treemapKey = `<div class="legend"><span><i style="background:rgba(var(--gain-rgb),.85)"></i>Grew</span><span><i style="background:rgba(var(--loss-rgb),.85)"></i>Fell</span><span>Darker means a larger move, capped at ±50%. Box size is SS26.</span></div>`;
 function hbars(w, rows, {fmt = money, dim, labelW} = {}) {
-  const lw = labelW || Math.min(w * .34, 170), vw = 96, pw = Math.max(w - lw - vw, 40), rh = 26, bh = 14, H = rows.length * rh + 2, mx = Math.max(...rows.map(r => r.v), 1e-9), sx = v => Math.max(0, v) / mx * pw;
+  const lw = labelW || Math.min(w * .34, 170), vw = Math.max(48, ...rows.map(r => textW(r.vt ?? fmt(r.v)))), pw = Math.max(w - lw - vw, 40), rh = 26, bh = 14, H = rows.length * rh + 2, mx = Math.max(...rows.map(r => r.v), 1e-9), sx = v => Math.max(0, v) / mx * pw;
   let out = '';
   rows.forEach((r, i) => { const y = i * rh + (rh - bh) / 2;
     out += `<g ${tipAttr(r.tip || [r.label, fmt(r.v)])} ${drillAttr(dim, r.key ?? r.label)}><rect x="0" y="${i * rh}" width="${w}" height="${rh}" fill="transparent"/>`;
@@ -537,7 +541,7 @@ function cumCurve(w, vals, {H = 300, unit = 'dealers', marks = [.5, .8, .95]} = 
   out += `<path d="${line}L${sx(n).toFixed(1)} ${sy(0).toFixed(1)}Z" fill="rgba(var(--gain-rgb),.12)"/><path d="${line}" fill="none" stroke="var(--s26)" stroke-width="2" stroke-linejoin="round"/>`;
   marks.forEach(p => { let k = 1; while (k < n && cum[k] / T < p - 1e-12) k++;
     out += `<line x1="${sx(k)}" x2="${sx(k)}" y1="${sy(cum[k] / T)}" y2="${sy(0)}" stroke="var(--ink3)" stroke-dasharray="3 3"/><circle cx="${sx(k)}" cy="${sy(cum[k] / T)}" r="3.5" fill="var(--s26)" stroke="var(--panel)" stroke-width="1.5"/>`;
-    out += `<text class="v" x="${sx(k) + 7}" y="${sy(cum[k] / T) + 15}">${num(k)} ${unit} = ${pct(p, 0)}</text>`; });
+    const lt = `${num(k)} ${unit} = ${pct(p, 0)}`, rt = sx(k) + 7 + lt.length * 6.9 > w; out += `<text class="v" text-anchor="${rt ? 'end' : 'start'}" x="${rt ? sx(k) - 7 : sx(k) + 7}" y="${sy(cum[k] / T) + 15}">${lt}</text>`; });
   const B = Math.min(n, 120); let prev = 0;
   for (let b = 1; b <= B; b++) { const k = Math.round(b / B * n); if (k <= prev) continue;
     out += `<rect x="${sx(prev)}" y="${mt}" width="${Math.max(sx(k) - sx(prev), .5)}" height="${ph}" fill="transparent" ${tipAttr([`Top ${num(k)} ${unit}`, `${pct(cum[k] / T)} of the total`, money(cum[k]) + ' of ' + money(T)])}/>`; prev = k; }
@@ -548,14 +552,14 @@ function rankSlope(w, rows, {dim} = {}) {
   const by = k => rows.slice().sort((x, y) => y[k] - x[k] || String(x.label).localeCompare(String(y.label)));
   by('a').forEach((r, i) => r.r25 = i + 1); by('b').forEach((r, i) => r.r26 = i + 1);
   const rh = 25, top = 24, H = n * rh + top, mid = Math.max(Math.min(w * .2, 120), 50), side = (w - mid) / 2, x1 = side, x2 = side + mid, vw = QTY ? 66 : 74, nl = Math.max(Math.floor((side - vw - 12) / 6.4), 6);
-  const yy = r => top + (r - 1) * rh + rh / 2;
+  const yy = r => top + (r - 1) * rh + rh / 2, nlR = r => Math.max(Math.floor((w - x2 - 14 - vw) / 6.4) - String(r).length - 2, 4), nlL = r => Math.max(nl - String(r).length - 2, 4);
   let out = `<text class="tick" text-anchor="end" x="${x1}" y="12">SS25 rank</text><text class="tick" x="${x2}" y="12">SS26 rank</text>`;
   rows.forEach(r => { const up = r.r26 < r.r25, dn = r.r26 > r.r25, c = up ? 'var(--gain)' : dn ? 'var(--loss)' : 'var(--axis)';
     out += `<g ${tipAttr([r.label, `SS25: ${money(r.a)}, rank ${r.r25}`, `SS26: ${money(r.b)}, rank ${r.r26}`, up ? `Up ${r.r25 - r.r26}` : dn ? `Down ${r.r26 - r.r25}` : 'Same rank'])} ${drillAttr(dim, r.key)}>`;
     out += `<rect x="0" y="${yy(r.r25) - rh / 2}" width="${x1}" height="${rh}" fill="transparent"/><rect x="${x2}" y="${yy(r.r26) - rh / 2}" width="${w - x2}" height="${rh}" fill="transparent"/>`;
     out += `<line x1="${x1}" x2="${x2}" y1="${yy(r.r25)}" y2="${yy(r.r26)}" stroke="${c}" stroke-width="${up || dn ? 2 : 1.5}"/><circle cx="${x1}" cy="${yy(r.r25)}" r="3.5" fill="var(--s25)"/><circle cx="${x2}" cy="${yy(r.r26)}" r="3.5" fill="var(--s26)"/>`;
-    out += `<text class="lab" x="0" y="${yy(r.r25) + 4}">${r.r25}. ${esc(clip(r.label, nl))}</text><text class="tick" text-anchor="end" x="${x1 - 8}" y="${yy(r.r25) + 4}">${cfmt(r.a)}</text>`;
-    out += `<text class="tick" x="${x2 + 8}" y="${yy(r.r26) + 4}">${cfmt(r.b)}</text><text class="lab" x="${x2 + 12 + vw}" y="${yy(r.r26) + 4}">${r.r26}. ${esc(clip(r.label, nl))}</text></g>`; });
+    out += `<text class="lab" x="0" y="${yy(r.r25) + 4}">${r.r25}. ${esc(clip(r.label, nlL(r.r25)))}</text><text class="tick" text-anchor="end" x="${x1 - 8}" y="${yy(r.r25) + 4}">${cfmt(r.a)}</text>`;
+    out += `<text class="tick" x="${x2 + 8}" y="${yy(r.r26) + 4}">${cfmt(r.b)}</text><text class="lab" x="${x2 + 12 + vw}" y="${yy(r.r26) + 4}">${r.r26}. ${esc(clip(r.label, nlR(r.r26)))}</text></g>`; });
   return `<svg width="${w}" height="${H}" role="img" aria-label="Rank change chart">${out}</svg>`;
 }
 function boxes(w, rows, {dim} = {}) {
@@ -662,6 +666,150 @@ const P = {
 };
 const moreCharts = html => html.trim() ? `<h2 class="more-h">More charts</h2><div class="grid">${html}</div>` : '';
 
+/* ---------- deeper analysis: builders ---------- */
+const SIZE_EDGES = () => QTY ? [[0, '<10'], [10, '10–25'], [25, '25–50'], [50, '50–100'], [100, '100–250'], [250, '250–500'], [500, '500–1K'], [1000, '1K–2.5K'], [2500, '2.5K–5K'], [5000, '5K+']]
+  : [[0, '<10K'], [1e4, '10–25K'], [2.5e4, '25–50K'], [5e4, '50K–1L'], [1e5, '1–2.5L'], [2.5e5, '2.5–5L'], [5e5, '5–10L'], [1e6, '10–25L'], [2.5e6, '25–50L'], [5e6, '50L+']];
+const OUT_BASE = () => QTY ? 50 : 5e4;
+Object.assign(CX, {
+  decomp(R, dim, T) { return CX.members(R, dim, T).map(g => ({key: g.key, label: g.label, lost: -g.lostV, neu: g.newV, vol: g.vol, rate: g.rate, dv: g.dv, v26: g.v26, v25: g.v25})); },
+  bandFlow(R) { const L = ['Nil', ...BANDS.map(b => b[1])], m = {}; R.forEach(d => { const k = d.b25 + '|' + d.b26; m[k] = (m[k] || 0) + 1; }); return {L, m, n: R.length}; },
+  sizeDist(R) { const E = SIZE_EDGES(), bin = v => { let j = -1; E.forEach(([t], i) => { if (v >= t) j = i; }); return j; };
+    return E.map(([, label], i) => ({label, a: R.filter(d => d.v25 > 0 && bin(d.v25) === i).length, b: R.filter(d => d.v26 > 0 && bin(d.v26) === i).length})); },
+  sizeGrowth(R) { const c = R.filter(d => d.status === 'Continuing').sort((x, y) => x.v25 - y.v25 || x.v26 - y.v26), n = c.length, out = [];
+    for (let i = 0; i < 10; i++) { const g = c.slice(Math.floor(n * i / 10), Math.floor(n * (i + 1) / 10)); if (!g.length) continue;
+      const gs = g.map(d => d.g).sort((x, y) => x - y), s25 = g.reduce((p, d) => p + d.v25, 0), s26 = g.reduce((p, d) => p + d.v26, 0);
+      out.push({label: `D${i + 1}`, n: g.length, lo: g[0].v25, hi: g[g.length - 1].v25, pooled: s26 / s25 - 1, med: quant(gs, .5), q25: quant(gs, .25), q75: quant(gs, .75), grew: g.filter(d => d.g > 0).length / g.length}); }
+    return out; },
+  outliers(R) { const base = OUT_BASE(), c = R.filter(d => d.status === 'Continuing' && d.v25 >= base).map(d => ({d, lr: Math.log(d.v26 / d.v25)}));
+    if (c.length < 10) return null; const s = c.map(x => x.lr).sort((a, b) => a - b), m = quant(s, .5), mad = quant(c.map(x => Math.abs(x.lr - m)).sort((a, b) => a - b), .5), sig = 1.4826 * mad;
+    if (!(sig > 0)) return null; c.forEach(x => x.z = (x.lr - m) / sig);
+    return {base, m, sig, pts: c, out: c.filter(x => Math.abs(x.z) >= 3).sort((a, b) => Math.abs(b.z) - Math.abs(a.z)), skipped: R.filter(d => d.status === 'Continuing').length - c.length}; },
+  movers(R) { const gains = R.filter(d => d.dv > 0).map(d => d.dv), losses = R.filter(d => d.dv < 0).map(d => -d.dv); return {gains, losses, G: gains.reduce((s, v) => s + v, 0), L: losses.reduce((s, v) => s + v, 0)}; },
+  kpis() { return [['Growth', g => g.g, v => sPct(v), 1], ['LFL growth', g => g.lfl, v => sPct(v), 1], ['Dealer retention', g => g.logo, v => pct(v, 0), 1], ['GRR', g => g.grr, v => pct(v, 0), 1],
+    [`${QTY ? 'Qty' : 'Value'} per dealer`, g => g.perDealer, v => cfmt(v), 1], ['ASP SS26', g => g.a26, v => '₹' + num(v), 1], ['ASP change', g => g.da, v => sPct(v), 1],
+    ['New dealer share', g => g.v26 > 0 ? g.newV / g.v26 : null, v => pct(v, 0), 0], ['Largest dealer', g => g.topShare, v => pct(v, 0), -1]]; },
+  corr(R, dim, T) { const m = CX.members(R, dim, T).filter(g => g.v25 > 0 && g.v26 > 0); if (m.length < 6) return null;
+    const K = [['Size', g => g.v26], ...CX.kpis().map(k => [k[0], k[1]])], M = K.map(() => K.map(() => null));
+    K.forEach((a, i) => K.forEach((b, j) => { const pr = m.map(g => [a[1](g), b[1](g)]).filter(p => p[0] != null && p[1] != null && isFinite(p[0]) && isFinite(p[1]));
+      const r = i === j ? 1 : pr.length >= 6 ? spearman(pr.map(p => p[0]), pr.map(p => p[1])) : null; M[i][j] = r != null && isFinite(r) ? r : null; }));
+    return {labels: K.map(k => k[0]), M, n: m.length}; },
+  depend(R, dim, T) { return CX.members(R, dim, T).filter(g => g.v26 > 0).map(g => { const a = g.rows.map(d => d.v26).filter(v => v > 0).sort((x, y) => y - x); let c = 0, k = 0; while (k < a.length && c / g.v26 < .5 - 1e-12) c += a[k++];
+    return {key: g.key, label: g.label, top: g.topShare, topName: g.topName, to50: k, act: a.length, v26: g.v26}; }); },
+});
+
+/* ---------- deeper analysis: charts ---------- */
+function decompBars(w, rows, comps, {dim} = {}) {
+  const lw = Math.min(w * .26, 150), vw = Math.max(64, ...rows.map(r => textW('+' + cfmt(r.dv)))), pw = Math.max(w - lw - vw - 8, 60), rh = 28, bh = 14, H = rows.length * rh + 4;
+  const negS = r => comps.reduce((s, [k]) => s + Math.min(0, r[k]), 0), posS = r => comps.reduce((s, [k]) => s + Math.max(0, r[k]), 0);
+  const mN = Math.max(0, ...rows.map(r => -negS(r))), mP = Math.max(0, ...rows.map(posS)), span = (mN + mP) || 1, sc = v => v / span * pw, x0 = lw + sc(mN);
+  let out = `<line x1="${x0}" x2="${x0}" y1="0" y2="${H}" stroke="var(--axis)"/>`;
+  rows.forEach((r, i) => { const y = i * rh + (rh - bh) / 2; let p = x0, n = x0;
+    out += `<g ${tipAttr([r.label, ...comps.map(([k, l]) => `${l}: ${sMoney(r[k])}`), `Net: ${sMoney(r.dv)}`])} ${drillAttr(dim, r.key)}><rect x="0" y="${i * rh}" width="${w}" height="${rh}" fill="transparent"/><text class="lab" x="0" y="${y + 11}">${esc(clip(r.label, Math.floor(lw / 6.4)))}</text>`;
+    comps.forEach(([k, , c]) => { const v = r[k]; if (!v) return; const wd = Math.max(sc(Math.abs(v)), .5); if (v > 0) { out += `<rect x="${p}" y="${y}" width="${wd}" height="${bh}" fill="${c}"/>`; p += wd; } else { n -= wd; out += `<rect x="${n}" y="${y}" width="${wd}" height="${bh}" fill="${c}"/>`; } });
+    const nx = x0 + sc(r.dv); out += `<path d="M${nx} ${y - 3}l4 ${bh / 2 + 3}l-4 ${bh / 2 + 3}l-4 ${-bh / 2 - 3}z" fill="var(--ink)" stroke="var(--panel)" stroke-width="1"/>`;
+    out += `<text class="v" text-anchor="end" x="${w}" y="${y + 11}">${(r.dv > 0 ? '+' : '') + cfmt(r.dv)}</text></g>`; });
+  return `<svg width="${w}" height="${H}" role="img" aria-label="Growth decomposition">${out}</svg>`;
+}
+function sankey(w, F, {H = 330} = {}) {
+  const L = F.L, order = L.slice().reverse(), N = F.n || 1, lab = 118, nw = 10, gap = 6, x1 = lab, x2 = w - lab - nw;
+  const nodes = side => { const tot = k => side === 'l' ? L.reduce((s, j) => s + (F.m[k + '|' + j] || 0), 0) : L.reduce((s, i) => s + (F.m[i + '|' + k] || 0), 0);
+    const ks = order.filter(k => tot(k) > 0), avail = H - gap * (ks.length - 1); let y = 0; const o = {}; ks.forEach(k => { const h = tot(k) / N * avail; o[k] = {y, h, n: tot(k), off: 0}; y += h + gap; }); return o; };
+  const A = nodes('l'), B = nodes('r'), idx = k => L.indexOf(k), name = (k, side) => k === 'Nil' ? (side === 'l' ? 'None (new)' : 'None (lost)') : k;
+  let out = '';
+  order.forEach(i => order.forEach(j => { const c = F.m[i + '|' + j]; if (!c || !A[i] || !B[j]) return; const a = A[i], b = B[j], ha = c / a.n * a.h, hb = c / b.n * b.h;
+    const ya = a.y + a.off, yb = b.y + b.off; a.off += ha; b.off += hb; const xm = (x1 + nw + x2) / 2;
+    const col = i === 'Nil' ? 'var(--c3)' : j === 'Nil' ? 'var(--loss)' : idx(j) > idx(i) ? 'var(--gain)' : idx(j) < idx(i) ? 'var(--c4)' : 'var(--s25)';
+    out += `<path class="flow" d="M${x1 + nw} ${ya}C${xm} ${ya} ${xm} ${yb} ${x2} ${yb}L${x2} ${yb + hb}C${xm} ${yb + hb} ${xm} ${ya + ha} ${x1 + nw} ${ya + ha}Z" fill="${col}" ${tipAttr([`${name(i, 'l')} to ${name(j, 'r')}`, plural(c, 'dealer'), `${pct(c / a.n)} of the SS25 group`])}/>`; }));
+  Object.entries(A).forEach(([k, a]) => out += `<rect x="${x1}" y="${a.y}" width="${nw}" height="${Math.max(a.h, 1)}" fill="var(--ink2)"/><text class="lab" text-anchor="end" x="${x1 - 6}" y="${a.y + a.h / 2 + 4}">${esc(name(k, 'l'))} · ${num(a.n)}</text>`);
+  Object.entries(B).forEach(([k, b]) => out += `<rect x="${x2}" y="${b.y}" width="${nw}" height="${Math.max(b.h, 1)}" fill="var(--ink2)"/><text class="lab" x="${x2 + nw + 6}" y="${b.y + b.h / 2 + 4}">${esc(name(k, 'r'))} · ${num(b.n)}</text>`);
+  return `<svg width="${w}" height="${H}" role="img" aria-label="Size band flow from SS25 to SS26">${out}</svg>`;
+}
+const sankeyKey = `<div class="legend"><span><i style="background:var(--gain)"></i>Moved up</span><span><i style="background:var(--s25)"></i>Same band</span><span><i style="background:var(--c4)"></i>Moved down</span><span><i style="background:var(--loss)"></i>Lost</span><span><i style="background:var(--c3)"></i>New</span></div>`;
+function mekko(w, cols, keys, colorOf, {H = 300} = {}) {
+  const tot = cols.reduce((s, c) => s + c.total, 0); if (!tot) return ''; const mb = 22, ph = H - mb, gap = 2, pw = w - gap * (cols.length - 1); let x = 0, out = '';
+  cols.forEach(c => { const cw = c.total / tot * pw; let y = 0;
+    keys.forEach(k => { const v = c.parts[k] || 0; if (!v) return; const h = v / c.total * ph;
+      out += `<rect x="${x}" y="${y}" width="${Math.max(cw, .5)}" height="${h}" fill="${colorOf(k)}" ${tipAttr([`${c.label}, ${k}`, money(v), `${pct(v / c.total)} of ${c.label}`, `${pct(v / tot)} of the total`])} ${c.key != null ? drillAttr(c.dim, c.key) : ''}/>`;
+      if (cw > 34 && h > 15) out += `<text x="${x + 4}" y="${y + 12}" style="fill:${textOn(colorOf(k))};font-size:11px;font-weight:600;pointer-events:none">${pct(v / c.total, 0)}</text>`; y += h; });
+    if (cw > 30) out += `<text class="tick" x="${x + 2}" y="${H - 6}">${esc(clip(c.label, Math.floor((cw - 4) / 7)))}</text>`; x += cw + gap; });
+  return `<svg width="${w}" height="${H}" role="img" aria-label="Marimekko chart">${out}</svg>`;
+}
+function rangeDots(w, rows, {x0, x1, xt, xf}) {
+  const lw = Math.min(Math.max(...rows.map(r => r.label.length * 6.4 + 10)), w * .42), mr = 64, pw = Math.max(w - lw - mr, 60), rh = 28, H = rows.length * rh + 24, sx = v => lw + (Math.max(x0, Math.min(x1, v)) - x0) / (x1 - x0) * pw; let out = '';
+  xt.forEach(t => out += `<line x1="${sx(t)}" x2="${sx(t)}" y1="0" y2="${H - 22}" stroke="${t === 0 ? 'var(--axis)' : 'var(--grid)'}"/><text class="tick" text-anchor="middle" x="${sx(t)}" y="${H - 6}">${xf(t)}</text>`);
+  rows.forEach((r, i) => { const y = i * rh + rh / 2 - 2;
+    out += `<g ${tipAttr(r.tip)}><rect x="0" y="${i * rh}" width="${w}" height="${rh}" fill="transparent"/><text class="lab" x="0" y="${y + 4}">${esc(r.label)}</text>`;
+    out += `<rect x="${sx(r.q25)}" y="${y - 6}" width="${Math.max(sx(r.q75) - sx(r.q25), 1)}" height="12" rx="3" fill="rgba(var(--gain-rgb),.22)" stroke="var(--s26)"/><line x1="${sx(r.med)}" x2="${sx(r.med)}" y1="${y - 6}" y2="${y + 6}" stroke="var(--s26)" stroke-width="2.5"/>`;
+    const cl = r.pooled > x1 || r.pooled < x0; out += `<path d="M${sx(r.pooled)} ${y - 5}l5 5l-5 5l-5 -5z" fill="${cl ? 'var(--panel)' : 'var(--c2)'}" stroke="${cl ? 'var(--c2)' : 'var(--panel)'}" stroke-width="${cl ? 1.5 : 1}"/><text class="v" x="${lw + pw + 8}" y="${y + 4}">${sPct(r.pooled, 0)}${cl ? (r.pooled > x1 ? ' ›' : ' ‹') : ''}</text></g>`; });
+  return `<svg width="${w}" height="${H}" role="img" aria-label="Growth by size decile">${out}</svg>`;
+}
+function dualCum(w, A, B, {H = 280, unit = 'dealers'} = {}) {
+  const sets = [[A, 'var(--gain)', 'gains'], [B, 'var(--loss)', 'losses']].map(([v, c, l]) => { const a = v.slice().sort((x, y) => y - x), T = a.reduce((s, x) => s + x, 0), cum = [0]; a.forEach((x, i) => cum.push(cum[i] + x)); return {a, T, cum, c, l}; }).filter(s => s.a.length);
+  if (!sets.length) return ''; const n = Math.max(...sets.map(s => s.a.length)), ml = 44, mb = 38, mt = 10, mr = 16, pw = w - ml - mr, ph = H - mb - mt, sx = k => ml + k / n * pw, sy = p => mt + ph - p * ph; let out = '';
+  [0, .25, .5, .75, 1].forEach(t => out += `<line x1="${ml}" x2="${w - mr}" y1="${sy(t)}" y2="${sy(t)}" stroke="var(--grid)"/><text class="tick" text-anchor="end" x="${ml - 6}" y="${sy(t) + 4}">${t * 100}%</text>`);
+  ticks(0, n, 5).filter(Number.isInteger).forEach(t => out += `<text class="tick" text-anchor="${sx(t) > w - mr - 14 ? 'end' : 'middle'}" x="${sx(t)}" y="${mt + ph + 16}">${num(t)}</text>`);
+  out += `<text class="tick" text-anchor="middle" x="${ml + pw / 2}" y="${H - 4}">Number of ${unit}, largest move first</text>`;
+  sets.forEach((s, si) => { let d = `M${sx(0)} ${sy(0)}`; for (let k = 1; k < s.cum.length; k++) d += `L${sx(k).toFixed(1)} ${sy(s.cum[k] / s.T).toFixed(1)}`; out += `<path d="${d}" fill="none" stroke="${s.c}" stroke-width="2" stroke-linejoin="round"/>`;
+    let k = 1; while (k < s.a.length && s.cum[k] / s.T < .5 - 1e-12) k++; out += `<circle cx="${sx(k)}" cy="${sy(s.cum[k] / s.T)}" r="3.5" fill="${s.c}" stroke="var(--panel)" stroke-width="1.5"/>${(lt => { const rt = sx(k) + 7 + lt.length * 6.9 > w; return `<text class="v" text-anchor="${rt ? 'end' : 'start'}" x="${rt ? sx(k) - 7 : sx(k) + 7}" y="${sy(s.cum[k] / s.T) + (si ? 16 : -6)}">${lt}</text>`; })(`${num(k)} = half of ${s.l}`)}`; });
+  const Bn = Math.min(n, 120); let prev = 0;
+  for (let b = 1; b <= Bn; b++) { const k = Math.round(b / Bn * n); if (k <= prev) continue; out += `<rect x="${sx(prev)}" y="${mt}" width="${Math.max(sx(k) - sx(prev), .5)}" height="${ph}" fill="transparent" ${tipAttr([`Top ${num(k)} ${unit}`, ...sets.map(s => `${pct(s.cum[Math.min(k, s.a.length)] / s.T)} of ${s.l}`)])}/>`; prev = k; }
+  return `<svg width="${w}" height="${H}" role="img" aria-label="Concentration of gains and losses">${out}</svg>`;
+}
+function kpiGrid(rows, K, {dim} = {}) {
+  const pr = K.map(([, f]) => { const v = rows.map(f).filter(x => x != null && isFinite(x)).sort((a, b) => a - b); return x => { if (x == null || !isFinite(x) || v.length < 2) return null; const lo = v.filter(y => y < x).length, eq = v.filter(y => y === x).length; return (lo + (eq - 1) / 2) / (v.length - 1); }; });
+  const bg = (p, dir) => { if (p == null || !dir) return ''; const q = dir > 0 ? p : 1 - p, a = Math.abs(q - .5) * 2 * .7; return `background:rgba(${q >= .5 ? 'var(--gain-rgb)' : 'var(--loss-rgb)'},${a.toFixed(3)});${a > .45 ? 'color:#fff;' : ''}`; };
+  return `<div class="tw"><table class="heat kpi"><thead><tr><th></th>${K.map(k => `<th>${esc(k[0])}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr${dim ? ` class="click" data-drill="${esc(dim)}|${esc(r.key)}" tabindex="0"` : ''}><td>${esc(r.label)}</td>${K.map(([l, f, fm, dir], i) => { const v = f(r), p = pr[i](v); return `<td style="${bg(p, dir)}" ${tipAttr([r.label + ', ' + l, v == null || !isFinite(v) ? 'Not available' : fm(v), p == null ? '' : `Percentile ${Math.round(p * 100)} of ${rows.length}`])}>${v == null || !isFinite(v) ? '–' : fm(v)}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ---------- deeper analysis: panels ---------- */
+Object.assign(P, {
+  decomp(R, T, dim, {span = 7, n = 12} = {}) {
+    const all = CX.decomp(R, dim, T); if (!all.length) return ''; const rows = all.slice().sort((a, b) => Math.abs(b.dv) - Math.abs(a.dv)).slice(0, n).sort((a, b) => b.dv - a.dv);
+    const comps = [['lost', 'Lost dealers', 'var(--loss)'], ['neu', 'New dealers', 'var(--c3)'], ['vol', QTY ? 'Like-for-like change' : 'LFL volume', 'var(--s26)'], ...(QTY ? [] : [['rate', 'LFL rate and mix', 'var(--c4)']])];
+    const churn = all.filter(r => r.dv < 0 && -r.lost > Math.abs(r.vol + r.rate)), worst = rows[rows.length - 1];
+    return panel({span, title: worst && worst.dv < 0 ? `${esc(worst.label)} fell ${money(-worst.dv)}: lost dealers ${sMoney(worst.lost)}, new dealers ${sMoney(worst.neu)}, like-for-like ${sMoney(worst.vol + worst.rate)}` : `What drove each ${esc(dimName(dim))}`, sub: `Net change split into lost dealers, new dealers and ${QTY ? 'like-for-like change' : 'like-for-like volume and rate'}. The diamond marks the net. ${churn.length ? `${plural(churn.length, esc(dimName(dim)))} declined mainly through lost dealers.` : ''}`,
+      body: `<div class="legend">${comps.map(([, l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join('')}<span>◆ Net</span></div>` + chart(w => decompBars(w, rows, comps, {dim: dim === 'sg' ? null : dim})),
+      twin: {cols: [C.text(dimName(dim), 'label'), C.lakh('Lost ₹ L', 'lost'), C.lakh('New ₹ L', 'neu'), C.lakh(QTY ? 'LFL change ₹ L' : 'LFL volume ₹ L', 'vol'), ...(QTY ? [] : [C.lakh('LFL rate ₹ L', 'rate')]), C.lakh('Net ₹ L', 'dv')], rows}});
+  },
+  sankey(R, {span = 7} = {}) { const F = CX.bandFlow(R), L = F.L.slice(1), idx = k => F.L.indexOf(k);
+    let up = 0, dn = 0, same = 0; Object.entries(F.m).forEach(([k, c]) => { const [a, b] = k.split('|'); if (a === 'Nil' || b === 'Nil') return; if (idx(b) > idx(a)) up += c; else if (idx(b) < idx(a)) dn += c; else same += c; });
+    return panel({span, title: `${num(up)} dealers moved up a size band and ${num(dn)} moved down. ${num(same)} stayed in their band`, sub: `Dealers flowing from their SS25 size band (left) to their SS26 band (right), by ${MW()}${QTY ? ' in units' : ''}. Bands: ${L.join(', ')}. Hover a ribbon for the count.`, body: sankeyKey + chart(w => sankey(w, F))}); },
+  mekko(R, T, dim, {span = 7, n = 12} = {}) {
+    const cd = dim === 'channel' ? 'rsm' : dim, m = CX.members(R, cd, T).filter(g => g.v26 > 0), top = m.slice(0, n), rest = m.slice(n), chs = CH_ORDER.filter(c => R.some(d => d.channel === c && d.v26 > 0));
+    const col = g => { const p = {}; g.rows.forEach(d => p[d.channel] = (p[d.channel] || 0) + d.v26); return p; };
+    const cols = top.map(g => ({key: cd === 'sg' ? null : g.key, dim: cd, label: g.label, total: g.v26, parts: col(g)}));
+    if (rest.length) { const p = {}; rest.forEach(g => Object.entries(col(g)).forEach(([k, v]) => p[k] = (p[k] || 0) + v)); cols.push({key: null, label: `Other ${rest.length}`, total: rest.reduce((s, g) => s + g.v26, 0), parts: p}); }
+    if (cols.length < 2) return '';
+    return panel({span, title: `Size and channel mix of every ${esc(dimName(cd))} in one view`, sub: `Column width is each ${esc(dimName(cd))}'s share of SS26 ${MW()}. Column height splits it by channel.${rest.length ? ` The smallest ${num(rest.length)} are combined.` : ''}`, body: `<div class="legend">${chs.map(c => `<span><i style="background:${chColor(c)}"></i>${esc(c)}</span>`).join('')}</div>` + chart(w => mekko(w, cols, chs, chColor))}); },
+  sizeDist(R, {span = 6} = {}) { const c = CX.sizeDist(R), m25 = median(R.filter(d => d.v25 > 0).map(d => d.v25)), m26 = median(R.filter(d => d.v26 > 0).map(d => d.v26));
+    return panel({span, title: `The median active dealer moved from ${money(m25)} to ${money(m26)}`, sub: `Active dealers by SS25 and SS26 ${MW()}${QTY ? ' in units' : ' in ₹'}, on bands that widen as dealers get larger.`, body: seasonLegend + chart(w => columns(w, c, {fmt: v => plural(v, 'dealer'), H: 250})), twin: {cols: [C.text('Band', 'label', {nosort: 1}), C.int('Dealers SS25', 'a', {nosort: 1}), C.int('Dealers SS26', 'b', {nosort: 1})], rows: c}}); },
+  sizeGrowth(R, {span = 6} = {}) { const d = CX.sizeGrowth(R); if (d.length < 3) return ''; const f = d[0], l = d[d.length - 1];
+    const lo = Math.max(-1, Math.floor(Math.min(...d.map(r => Math.min(r.q25, r.pooled))) * 4) / 4), hi = Math.min(2, Math.ceil(Math.max(...d.map(r => Math.max(r.q75, r.pooled))) * 4) / 4), xt = ticks(lo, hi, 6);
+    return panel({span, title: `Smallest tenth of continuing dealers: median ${sPct(f.med, 0)}. Largest tenth: ${sPct(l.med, 0)}`, sub: `Continuing dealers in ten equal groups by SS25 ${MW()}, smallest first. Box is the middle half of dealer growth, line the median, diamond the pooled growth of the group.`,
+      body: `<div class="legend"><span><i style="background:rgba(var(--gain-rgb),.22);border:1px solid var(--s26)"></i>Middle half</span><span><i style="background:var(--s26);width:3px"></i>Median</span><span><i style="background:var(--c2);transform:rotate(45deg);width:8px;height:8px"></i>Pooled growth</span></div>` + chart(w => rangeDots(w, d.map(r => ({...r, label: `${r.label} · ${cfmt(r.lo)}–${cfmt(r.hi)}`, tip: [`Decile ${r.label.slice(1)}: SS25 ${money(r.lo)} to ${money(r.hi)}`, plural(r.n, 'dealer'), `Median ${sPct(r.med)}, middle half ${sPct(r.q25)} to ${sPct(r.q75)}`, `Pooled ${sPct(r.pooled)}`, `${pct(r.grew, 0)} grew`]})), {x0: xt[0], x1: xt[xt.length - 1], xt, xf: v => pct(v, 0)})),
+      note: `Small dealers often swing more in both directions. Part of the gap between groups is regression to the mean, not a size effect.${d.some(r => r.q75 > hi || r.q25 < lo || r.pooled > hi || r.pooled < lo) ? ` The axis stops at ${sPct(lo, 0)} and ${sPct(hi, 0)}. Values beyond it sit at the edge, marked with a hollow diamond and ›.` : ''}`, twin: {cols: [C.text('Decile', 'label', {nosort: 1}), C.int('Dealers', 'n', {nosort: 1}), C.lakh('From ₹ L', 'lo', {nosort: 1}), C.lakh('To ₹ L', 'hi', {nosort: 1}), C.pct('Median growth', 'med', {nosort: 1}), C.pct('P25', 'q25', {nosort: 1}), C.pct('P75', 'q75', {nosort: 1}), C.pct('Pooled growth', 'pooled', {nosort: 1}), C.pct('Share that grew', 'grew', {nosort: 1})], rows: d}}); },
+  outliers(R, {span = 7} = {}) { const o = CX.outliers(R); if (!o) return ''; const hiN = o.out.filter(x => x.z > 0).length, loN = o.out.length - hiN;
+    const lrs = o.pts.map(x => x.lr), y0 = Math.max(Math.min(...lrs), Math.log(.02)) - .1, y1 = Math.min(Math.max(...lrs), Math.log(50)) + .1, yt = [.05, .1, .25, .5, 1, 2, 4, 10, 25].map(Math.log).filter(v => v >= y0 && v <= y1);
+    const xs = o.pts.map(x => x.d.v25), x0 = Math.floor(Math.log10(Math.min(...xs))), x1 = Math.ceil(Math.log10(Math.max(...xs))), xt = []; for (let e = x0; e <= x1; e++) xt.push(10 ** e);
+    const pts_ = o.pts.map(x => ({x: x.d.v25, y: x.lr, r: Math.abs(x.z) >= 3 ? 4.5 : 3, op: Math.abs(x.z) >= 3 ? .9 : .28, c: Math.abs(x.z) >= 3 ? (x.z > 0 ? 'var(--gain)' : 'var(--loss)') : 'var(--s25)', tip: [x.d.name, `${x.d.city}, ${x.d.asm}`, `SS25 ${money(x.d.v25)}, SS26 ${money(x.d.v26)}`, `Growth ${sPct(x.d.g)}`, `Robust z-score ${x.z.toFixed(1)}`]}));
+    return panel({span, title: o.out.length ? `${plural(o.out.length, 'dealer')} moved far outside the normal range: ${num(hiN)} up, ${num(loN)} down` : 'No dealer moved far outside the normal range', sub: `Continuing dealers with at least ${money(o.base)} in SS25. Growth on a log scale against SS25 size. Dashed lines mark 3 robust standard deviations from the median dealer (${sPct(Math.exp(o.m) - 1, 0)}).${o.skipped ? ` ${plural(o.skipped, 'smaller dealer')} left out.` : ''}`,
+      body: chart(w => scatter(w, pts_, {xLog: 1, x0, x1, y0, y1, xt, yt, xf: v => axisMoney(v), yf: v => sPct(Math.exp(v) - 1, 0), xTitle: `SS25 ${MW()} (log scale)`, yTitle: 'Growth (log scale)', yRef: o.m, hLines: [{y: o.m + 3 * o.sig, t: '+3σ'}, {y: o.m - 3 * o.sig, t: '−3σ'}], H: 340, aria: 'Dealer growth outliers', labels: o.out.slice(0, 6).map(x => ({x: x.d.v25, y: x.lr, label: clip(x.d.name, 22)}))})),
+      twin: {cols: [C.text('Dealer', r => r.d.name), C.text('City', r => r.d.city), C.text('ASM', r => r.d.asm), C.lakh('SS25 ₹ L', r => r.d.v25), C.lakh('SS26 ₹ L', r => r.d.v26), C.pct('Growth', r => r.d.g), {h: 'Robust z', n: 1, v: r => r.z, f: x => signed(x, v => (v > 0 ? '+' : v < 0 ? MINUS : '') + Math.abs(v).toFixed(1))}], rows: o.out, csv: 'exotic-outliers'}, note: 'Robust z-score = (log growth − median) ÷ (1.4826 × median absolute deviation). It is not distorted by the outliers themselves. Select Show table for the full list.'}); },
+  movers(R, {span = 5} = {}) { const m = CX.movers(R); if (!m.gains.length && !m.losses.length) return '';
+    return panel({span, title: `Gross gains of ${money(m.G)} and gross losses of ${money(m.L)} net to ${sMoney(m.G - m.L)}`, sub: `How concentrated the moves are. Each curve adds dealers from the largest move down. Gains include new dealers and losses include lost dealers.`, body: `<div class="legend"><span><i style="background:var(--gain)"></i>Gains, ${plural(m.gains.length, 'dealer')}</span><span><i style="background:var(--loss)"></i>Losses, ${plural(m.losses.length, 'dealer')}</span></div>` + chart(w => dualCum(w, m.gains, m.losses))}); },
+  kpi(R, T, dim, {span = 12, n = 12} = {}) { const m = CX.members(R, dim, T).slice(0, n); if (m.length < 2) return ''; const K = CX.kpis();
+    const score = m.map(g => { const ps = K.filter(k => k[3]).map(([, f, , dir]) => { const v = m.map(f).filter(x => x != null && isFinite(x)).sort((a, b) => a - b), x = f(g); if (x == null || !isFinite(x) || v.length < 2) return null; const p = (v.filter(y => y < x).length + (v.filter(y => y === x).length - 1) / 2) / (v.length - 1); return dir > 0 ? p : 1 - p; }).filter(p => p != null); return {g, s: ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : null}; }).filter(x => x.s != null).sort((a, b) => b.s - a.s);
+    return panel({span, title: score.length > 1 ? `${esc(score[0].g.label)} ranks best across the measures and ${esc(score[score.length - 1].g.label)} ranks last` : 'Benchmark grid', sub: `The ${num(m.length)} largest ${esc(dimName(dim))}s. Colour is the percentile against the others shown: blue is better, red is worse. A smaller largest-dealer share counts as better. New dealer share is not coloured. Ranking averages the coloured measures with equal weights.`, body: kpiGrid(m, K, {dim: dim === 'sg' ? null : dim})}); },
+  corr(R, T, dim, {span = 12} = {}) { const c = CX.corr(R, dim, T); if (!c) return ''; let best = null;
+    const linked = new Set(['Growth|LFL growth', 'Growth|GRR', 'LFL growth|GRR', 'Dealer retention|GRR']), isL = (a, b) => linked.has(a + '|' + b) || linked.has(b + '|' + a);
+    c.M.forEach((row, i) => row.forEach((r, j) => { if (j > i && r != null && !isL(c.labels[i], c.labels[j]) && (!best || Math.abs(r) > Math.abs(best.r))) best = {i, j, r}; }));
+    return panel({span, title: best ? `Across ${num(c.n)} ${esc(dimName(dim))}s, ${esc(c.labels[best.i])} and ${esc(c.labels[best.j])} have the strongest ${best.r < 0 ? 'inverse ' : ''}link (ρ = ${(best.r < 0 ? MINUS : '') + Math.abs(best.r).toFixed(2)})` : 'Measure correlations', sub: `Spearman rank correlation between measures across ${esc(dimName(dim))}s that booked in both seasons. +1 means they rise together, −1 means one falls as the other rises. The headline skips pairs linked by definition, such as growth and LFL growth.${c.n < 15 ? ` Only ${num(c.n)} ${esc(dimName(dim))}s, so read these as directional.` : ''}`,
+      body: heatTable(c.labels, c.labels, (r, k) => c.M[c.labels.indexOf(r)][c.labels.indexOf(k)], {fmt: v => (v < 0 ? MINUS : '') + Math.abs(v).toFixed(2), diverge: true, max: 1}), note: 'Correlation shows association across groups, not cause. Size is SS26 ' + MW() + '.'}); },
+  depend(R, T, dim, {span = 5, n = 12} = {}) { const d = CX.depend(R, dim, T).slice(0, n).sort((a, b) => b.top - a.top); if (!d.length) return ''; const t = d[0];
+    return panel({span, title: `In ${esc(t.label)}, one dealer books ${pct(t.top, 0)} of SS26 ${MW()}`, sub: `Share of SS26 ${MW()} from the single largest dealer, for the ${num(d.length)} largest ${esc(dimName(dim))}s. Hover for the dealer and how many dealers make half.`, body: chart(w => hbars(w, d.map(r => ({key: r.key, label: r.label, v: r.top, vt: pct(r.top, 0), c: r.top >= .5 ? 'var(--loss)' : r.top >= .25 ? 'var(--c4)' : 'var(--s26)', tip: [r.label, `Largest: ${r.topName}, ${pct(r.top)}`, `${plural(r.to50, 'dealer')} of ${num(r.act)} make half`]})), {dim: dim === 'sg' ? null : dim})),
+      twin: {cols: [C.text(dimName(dim), 'label'), C.pct('Largest dealer share', 'top'), C.text('Largest dealer', r => clip(r.topName, 30)), C.int('Dealers for half', 'to50'), C.int('Active dealers', 'act')], rows: d}}); },
+});
+
 function renderCharts(R, T, K) {
   const dim = state.cd, n = state.cn, mw = MW();
   const vital = (v, t, s) => `<div class="vital"><b>${v}</b><span>${t}</span><small>${s}</small></div>`;
@@ -677,20 +825,35 @@ function renderCharts(R, T, K) {
     ${vital('₹' + num(T.a26), 'ASP', `${sPct(T.da)} against ₹${num(T.a25)}`)}
     ${vital(pct(topShare(R, 'v26', 10)), 'Top 10 dealer share', `${num(K.to80)} dealers make 80%`)}
   </div>`;
-  return secHead('Charts', `Key charts in one place. Choose the measure and the breakdown. The filters above apply to every chart.`) + ctl + vitals + `<div class="grid">
-    ${panel({span: 7, title: `Lost dealers took ${money(T.lostV)} and new dealers added ${money(T.newV)}. Net change ${sMoney(T.dv)}`, sub: `${mw[0].toUpperCase() + mw.slice(1)} bridge from SS25 to SS26 by dealer status. Hover a bar for the definition.`, body: chart(w => bridge(w, b1)), twin: {cols: [C.text('Step', 'label'), C.lakh('Change ₹ L', 'v')], rows: b1}})}
+  const sec = (t, html) => html.trim() ? `<h2 class="more-h">${esc(t)}</h2><div class="grid">${html}</div>` : '';
+  return secHead('Charts', `Key charts in one place. Choose the measure and the breakdown. The filters above apply to every chart.`) + ctl + vitals
+    + sec('Where the change came from', `
+    ${panel({span: 7, title: `Lost dealers took ${money(T.lostV)} and new dealers added ${money(T.newV)}. Net change ${sMoney(T.dv)}`, sub: `${mw[0].toUpperCase() + mw.slice(1)} bridge from SS25 to SS26 by dealer status. Hover a bar for the definition.`, body: chart(w => bridge(w, b1)), twin: {cols: [C.text('Step', 'label'), C.lakh(QTY ? 'Qty' : 'Value ₹ L', 'v')], rows: b1}})}
     ${P.growthDist(R)}
-    ${P.treemap(R, T, dim)}
+    ${P.decomp(R, T, dim, {n})}
     ${P.contrib(R, T, dim, {n})}
-    ${P.matrix(R, T, dim, {labels: Math.min(n, 12)})}
-    ${P.slope(R, T, dim, {n})}
+    ${P.outliers(R)}
+    ${P.movers(R)}`)
+    + sec('Structure and concentration', `
+    ${P.treemap(R, T, dim)}
+    ${P.depend(R, T, dim, {n})}
+    ${P.mekko(R, T, dim, {n})}
+    ${P.matrix(R, T, dim, {span: 5, labels: Math.min(n, 8)})}
     ${P.pareto(R)}
-    ${P.bandKeep(R, {span: 6})}
-    ${P.mix(R, T, dim, {n})}
-    ${P.asp(R, dim, {n})}
+    ${P.sizeDist(R)}`)
+    + sec('Dealer movement', `
+    ${P.sankey(R)}
     ${P.flow(R)}
-    ${P.heat(R, T, dim, {n})}
-  </div>`;
+    ${P.bandKeep(R, {span: 6})}
+    ${P.sizeGrowth(R)}
+    ${P.slope(R, T, dim, {n})}
+    ${P.heat(R, T, dim, {n})}`)
+    + sec('Price and mix', `
+    ${P.asp(R, dim, {n})}
+    ${P.mix(R, T, dim, {n})}`)
+    + sec('Benchmarks', `
+    ${P.kpi(R, T, dim, {n})}
+    ${P.corr(R, T, dim)}`);
 }
 function extrasFor(s, R, T) {
   if (s === 'dealers') return moreCharts(P.pareto(R, {span: 7}) + P.growthDist(R));
@@ -956,7 +1119,7 @@ function renderAll(R) {
 function renderNotes(T) {
   const P = PAYLOAD.dq, A = DEALERS; const all = roll(A);
   const rec = P.recon.map(r => ({label: r.label, source: r.source, model: r.label.includes('Qty') ? (r.label.includes('SS25') ? all.q25 : all.q26) : (r.label.includes('SS25') ? all.v25 : all.v26)}));
-  const defs = [['Dealer', 'One S4HANA code. Four dealers carry two buyer numbers under one code, so they are combined. 1,253 source rows become 1,249 dealers.'], ['Value', 'Booking value from the source. The file names no currency, so ₹ is an assumption based on the Indian dealer base. 1 L = 100,000 and 1 Cr = 100 L.'], ['Qty', 'Booking qty from the source. The file names no unit.'], ['ASP', 'Value divided by qty. No SKU data exists, so a change in ASP mixes price and product mix.'], ['Continuing, New, Lost', 'Continuing booked both seasons. New booked SS26 only. Lost booked SS25 only. These cover this file only.'], ['LFL growth', 'SS26 value over SS25 value for continuing dealers, minus 1.'], ['Dealer retention', 'Continuing dealers divided by dealers active in SS25.'], ['NRR', 'SS26 value from SS25-active dealers divided by SS25 value. New dealers are excluded.'], ['GRR', 'Sum of the smaller of SS25 and SS26 value per dealer, divided by SS25 value.'], ['LFL volume effect', '(SS26 qty − SS25 qty) × SS25 ASP, per continuing dealer.'], ['LFL rate effect', '(SS26 ASP − SS25 ASP) × SS26 qty, per continuing dealer. Volume + rate + new − lost equals the total change exactly.'], ['Contribution', 'Change in value of a row divided by total SS25 value in the current filter.'], ['HHI', 'Sum of squared dealer shares × 10,000.'], ['Health index', 'Average percentile rank on LFL growth, dealer retention, value per dealer and ASP, with equal weights. COCO is left out because it has no ASM.'], ['State', 'Not in the source. Derived from city and sales group by the analyst.']];
+  const defs = [['Dealer', 'One S4HANA code. Four dealers carry two buyer numbers under one code, so they are combined. 1,253 source rows become 1,249 dealers.'], ['Value', 'Booking value from the source. The file names no currency, so ₹ is an assumption based on the Indian dealer base. 1 L = 100,000 and 1 Cr = 100 L.'], ['Qty', 'Booking qty from the source. The file names no unit.'], ['ASP', 'Value divided by qty. No SKU data exists, so a change in ASP mixes price and product mix.'], ['Continuing, New, Lost', 'Continuing booked both seasons. New booked SS26 only. Lost booked SS25 only. These cover this file only.'], ['LFL growth', 'SS26 value over SS25 value for continuing dealers, minus 1.'], ['Dealer retention', 'Continuing dealers divided by dealers active in SS25.'], ['NRR', 'SS26 value from SS25-active dealers divided by SS25 value. New dealers are excluded.'], ['GRR', 'Sum of the smaller of SS25 and SS26 value per dealer, divided by SS25 value.'], ['LFL volume effect', '(SS26 qty − SS25 qty) × SS25 ASP, per continuing dealer.'], ['LFL rate effect', '(SS26 ASP − SS25 ASP) × SS26 qty, per continuing dealer. Volume + rate + new − lost equals the total change exactly.'], ['Contribution', 'Change in value of a row divided by total SS25 value in the current filter.'], ['HHI', 'Sum of squared dealer shares × 10,000.'], ['Health index', 'Average percentile rank on LFL growth, dealer retention, value per dealer and ASP, with equal weights. COCO is left out because it has no ASM.'], ['State', 'Not in the source. Derived from city and sales group by the analyst.'], ['Qty pages', 'Every page except Summary and Data notes compares booking qty. Growth, retention, NRR, GRR and bands on those pages use qty. ASP stays in ₹ per unit. Charts can switch between qty and value.'], ['Robust z-score', '(log of SS26 ÷ SS25 − median) ÷ (1.4826 × median absolute deviation), for continuing dealers above a minimum SS25 size. Beyond ±3 counts as an outlier.'], ['Percentiles', 'Linear interpolation between ranked values, the same method as Excel PERCENTILE.INC.'], ['Rank correlation', 'Spearman correlation on ranks, with ties given their average rank. Pairs with fewer than 6 groups are left blank.'], ['LFL rate and mix', 'Like-for-like change not explained by qty, so price and product mix together. Lost + new + LFL volume + LFL rate equals the net change exactly.']];
   return secHead('Data notes', 'How the source was checked and cleaned, what is still open, and how each measure is defined.') + `<div class="grid">
     ${panel({span: 5, title: 'Dashboard totals match the source file exactly', sub: 'Source: Exotic Booking Data.xlsx, Sheet1, cells L2:O2. Comparison uses the unfiltered data.', body: table({cols: [C.text('Measure', 'label', {nosort: 1}), {h: 'Source', n: 1, v: r => r.source, f: x => num(x, 2), nosort: 1}, {h: 'Dashboard', n: 1, v: r => r.model, f: x => num(x, 2), nosort: 1}, {h: 'Difference', n: 1, v: r => Math.round((r.model - r.source) * 100) / 100, f: x => num(x, 2), nosort: 1}], rows: rec})})}
     ${panel({span: 7, title: `${P.mirror.length} possible recodes were left apart. They do not explain the dealer turnover`, sub: `Same name and city, with one code Lost and another New. Total ${money(P.mirror.reduce((s, m) => s + m.lost_value, 0))} lost and ${money(P.mirror.reduce((s, m) => s + m.new_value, 0))} new, against ${money(all.lostV)} and ${money(all.newV)} overall.`, body: table({cols: [C.text('Dealer', 'name', {nosort: 1}), C.text('City', 'city', {nosort: 1}), C.text('Lost code', 'lost_codes', {nosort: 1}), C.text('New codes', 'new_codes', {nosort: 1}), {h: 'Lost', n: 1, v: r => r.lost_value, f: x => money(x), nosort: 1}, {h: 'New', n: 1, v: r => r.new_value, f: x => money(x), nosort: 1}], rows: P.mirror})})}
@@ -1023,6 +1186,7 @@ function showTip(t, x, y) { const lines = t.dataset.tip.split('|').filter(Boolea
 document.addEventListener('mousemove', e => { const t = e.target.closest?.('[data-tip]'); if (t) showTip(t, e.clientX, e.clientY); else tip.style.display = 'none'; });
 document.addEventListener('focusin', e => { const t = e.target.closest?.('[data-tip]'); if (t) { const r = t.getBoundingClientRect(); showTip(t, r.right, r.top); } });
 document.addEventListener('focusout', () => { tip.style.display = 'none'; });
+document.addEventListener('touchstart', e => { const t = e.target.closest?.('[data-tip]'), p = e.touches[0]; if (t && p) showTip(t, p.clientX, p.clientY); else tip.style.display = 'none'; }, {passive: true});
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => document.querySelectorAll('[data-c]').forEach(el => { const w = el.clientWidth; if (w > 0) el.innerHTML = charts.get(el.dataset.c)(w); }) || fitSegLabels(), 120); });
 const themeBtn = document.getElementById('theme');
 const isDark = () => { const a = document.documentElement.dataset.theme; return a ? a === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
