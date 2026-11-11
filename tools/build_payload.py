@@ -41,6 +41,9 @@ CITY_STATE = ref.get('city_state', {})       # clean city -> state, from the Exo
 ASM_CANON = ref.get('asm', {})               # normalised ASM -> canonical spelling, from the Exotic workbook
 
 sp = lambda s: ' '.join(str(s).split())
+# Sales group arrives as a number (old files) or as '02 : PUNJAB' (current files). The code drives state lookups; the name is shown.
+sg_code = lambda v: int(str(v).split(':')[0]) if ':' in str(v) else int(v)
+sg_name = lambda v: sp(str(v).split(':', 1)[1]) if ':' in str(v) else str(int(v))
 norm_asm = lambda s: sp(s).upper()
 
 # ---- read --------------------------------------------------------------------
@@ -50,7 +53,7 @@ hi = next(i for i, r in enumerate(grid) if r and any(str(c).strip().upper().star
 hdr = [sp(c).upper() if c is not None else '' for c in grid[hi]]
 col = lambda *names: next(i for i, h in enumerate(hdr) if h in names)
 C = dict(buyer=col('BUYER NO.') if 'BUYER NO.' in hdr else None, s4=col('S4HANA CODE'), name=col('NAME'), city=col('CITY'), asm=col('ASM'), rsm=col('RSM'),
-         asm2=col('ASM2'), rsm2=col('RSM2', 'RSM 2'), nh=col('NH'), ch=col('CHANNEL'), sg=col('S.G', 'SALES GRP'), q25=col('SS25 QTY'), v25=col('SS25 VALUE'), q26=col('SS26 QTY'), v26=col('SS26 VALUE'))
+         asm2=col('ASM2') if 'ASM2' in hdr else None, rsm2=col('RSM2', 'RSM 2') if ('RSM2' in hdr or 'RSM 2' in hdr) else None, state_src=col('STATE') if 'STATE' in hdr else None, nh=col('NH'), ch=col('CHANNEL'), sg=col('S.G', 'SALES GRP'), q25=col('SS25 QTY'), v25=col('SS25 VALUE'), q26=col('SS26 QTY'), v26=col('SS26 VALUE'))
 recon_src = None
 if hi > 0:  # Exotic: subtotal row above the header
     sub = grid[hi - 1]; recon_src = [sub[C['q25']], sub[C['v25']], sub[C['q26']], sub[C['v26']]]
@@ -58,7 +61,8 @@ raw = []
 for i, r in enumerate(grid[hi + 1:], start=hi + 2):
     if r[C['s4']] is None and r[C['name']] is None: continue
     raw.append(dict(row=i, buyer=str(r[C['buyer']]) if C['buyer'] is not None else '', s4=sp(r[C['s4']]), name=sp(r[C['name']]), city_src=sp(r[C['city']]).upper(),
-                    asm_src=sp(r[C['asm']]), rsm=sp(r[C['rsm']]), asm2=sp(r[C['asm2']]), rsm2=sp(r[C['rsm2']]), nh=sp(r[C['nh']]), ch=sp(r[C['ch']]), sg=int(r[C['sg']]),
+                    asm_src=sp(r[C['asm']]), rsm=sp(r[C['rsm']]), asm2=sp(r[C['asm2'] if C['asm2'] is not None else C['asm']]), rsm2=sp(r[C['rsm2'] if C['rsm2'] is not None else C['rsm']]), nh=sp(r[C['nh']]), ch=sp(r[C['ch']]),
+                    sg=sg_code(r[C['sg']]), sg_name=sg_name(r[C['sg']]), state_src=sp(r[C['state_src']]) if C['state_src'] is not None else '',
                     q25=float(r[C['q25']] or 0), v25=float(r[C['v25']] or 0), q26=float(r[C['q26']] or 0), v26=float(r[C['v26']] or 0)))
 stray = [(c.coordinate, c.value) for row in ws.iter_rows(min_row=hi + 2) for c in row if c.column > len(hdr) and c.value is not None]
 src_tot = [round(sum(r[k] for r in raw), 4) for k in ('q25', 'v25', 'q26', 'v26')]
@@ -106,10 +110,10 @@ for k, rs in by.items():
     if len(rs) > 1:
         for r in rs: pairs.append(dict(s4=k, buyer=r['buyer'] or f"row {r['row']}", name=r['name'], v25=round(r['v25'], 2), v26=round(r['v26'], 2)))
     lead = max(rs, key=lambda r: (r['v26'], r['v25']))
-    for f in ('city', 'state', 'asm', 'rsm', 'nh', 'channel', 'sg'):
+    for f in ('city', 'state', 'asm', 'rsm', 'nh', 'channel', 'sg', 'sg_name'):
         if len({r[f] for r in rs}) > 1: raise SystemExit(f'Combined code {k} disagrees on {f}: {[r[f] for r in rs]}')
     d = dict(key=k, buyers=' / '.join(r['buyer'] for r in rs if r['buyer']), name=lead['name'], city=lead['city'], state=lead['state'], asm=lead['asm'], rsm=lead['rsm'],
-             nh=lead['nh'], channel=lead['channel'], sg=lead['sg'], group='', review='', rows=rs,
+             nh=lead['nh'], channel=lead['channel'], sg=lead['sg_name'], group='', review='', rows=rs,
              q25=round(sum(r['q25'] for r in rs), 4), v25=round(sum(r['v25'] for r in rs), 4), q26=round(sum(r['q26'] for r in rs), 4), v26=round(sum(r['v26'] for r in rs), 4))
     dealers.append(d)
 
