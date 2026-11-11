@@ -43,7 +43,7 @@ ASM_CANON = ref.get('asm', {})               # normalised ASM -> canonical spell
 sp = lambda s: ' '.join(str(s).split())
 # Sales group arrives as a number (old files) or as '02 : PUNJAB' (current files). The code drives state lookups; the name is shown.
 sg_code = lambda v: int(str(v).split(':')[0]) if ':' in str(v) else int(v)
-sg_name = lambda v: sp(str(v).split(':', 1)[1]) if ':' in str(v) else str(int(v))
+sg_name = lambda v: f"{sg_code(v):02d} : {sp(str(v).split(':', 1)[1])}" if ':' in str(v) else str(int(v))  # shown exactly as in the file, e.g. 02 : PUNJAB
 norm_asm = lambda s: sp(s).upper()
 
 # ---- read --------------------------------------------------------------------
