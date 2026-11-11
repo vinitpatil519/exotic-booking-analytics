@@ -645,11 +645,11 @@ const P = {
       body: chart(w => scatter(w, pts_.map(g => ({x: g.share, y: g.g, label: dim === 'sg' ? '' : g.key, r: 3 + 13 * Math.sqrt(g.v26 / mx), op: .55, c: g.g >= 0 ? 'var(--gain)' : 'var(--loss)', tip: [g.label, `SS26 ${money(g.v26)}, ${pct(g.share)} share`, `Growth ${sPct(g.g)}`, `${plural(g.act26, 'active dealer')}`]})), {x0: 0, x1, y0: ylo, y1: yhi, xt, yt: ticks(ylo, yhi, 6), xf: v => pct(v, 0), yf: v => pct(v, 0), xTitle: `Share of SS26 ${MW()}`, yTitle: 'Growth against SS25', xRef: avg, yRef: T.g, H: 340, dim: dim === 'sg' ? null : dim, aria: 'Share against growth', labels: m.filter(g => g.g != null && g.v26 > 0).slice(0, labels).map(g => ({x: g.share, y: g.g, label: g.label})), corners: [{x: 'r', y: 't', t: 'Large, growing fast'}, {x: 'l', y: 't', t: 'Small, growing fast'}, {x: 'r', y: 'b', t: 'Large, lagging'}, {x: 'l', y: 'b', t: 'Small, lagging'}]}))});
   },
   slope(R, T, dim, {span = 5, n = 12} = {}) {
-    const m = CX.members(R, dim, T).slice(0, n); if (m.length < 2) return '';
+    const allM = CX.members(R, dim, T), m = allM.slice(0, n); if (m.length < 2) return '';
     const rows = m.map(g => ({key: g.key, label: g.label, a: g.v25, b: g.v26}));
     rankSlope(400, rows); const up = rows.slice().sort((a, b) => (b.r25 - b.r26) - (a.r25 - a.r26)), climb = up[0], fall = up[up.length - 1];
-    const title = climb.r25 === climb.r26 && fall.r25 === fall.r26 ? `The ${num(m.length)} largest ${esc(dimName(dim))}s kept their order` : `${esc(climb.label)} climbed ${climb.r25 - climb.r26} places${fall.r26 > fall.r25 ? `. ${esc(fall.label)} fell ${fall.r26 - fall.r25}` : ''}`;
-    return panel({span, title, sub: `Rank among the ${num(m.length)} largest ${esc(dimName(dim))}s by SS26 ${MW()}. Blue moved up, red moved down.`, body: chart(w => rankSlope(w, rows.map(r => ({...r})), {dim: dim === 'sg' ? null : dim})), twin: {cols: [C.text(dimName(dim), 'label'), C.int('SS25 rank', 'r25'), C.int('SS26 rank', 'r26'), C.lakh('SS25 ₹ L', 'a'), C.lakh('SS26 ₹ L', 'b')], rows}});
+    const title = climb.r25 === climb.r26 && fall.r25 === fall.r26 ? `${cap1(many(m.length, allM.length, dim))} kept their order` : `${esc(climb.label)} climbed ${climb.r25 - climb.r26} places${fall.r26 > fall.r25 ? `. ${esc(fall.label)} fell ${fall.r26 - fall.r25}` : ''}`;
+    return panel({span, title, sub: `Rank among ${many(m.length, allM.length, dim)} by SS26 ${MW()}. Blue moved up, red moved down.`, body: chart(w => rankSlope(w, rows.map(r => ({...r})), {dim: dim === 'sg' ? null : dim})), twin: {cols: [C.text(dimName(dim), 'label'), C.int('SS25 rank', 'r25'), C.int('SS26 rank', 'r26'), C.lakh('SS25 ₹ L', 'a'), C.lakh('SS26 ₹ L', 'b')], rows}});
   },
   pareto(R, {span = 6, vals, unit = 'dealers', title, sub} = {}) {
     const a = (vals || R.map(d => d.v26)).filter(v => v > 0).sort((x, y) => y - x), n = a.length, T = a.reduce((s, v) => s + v, 0); if (!n) return '';
@@ -671,25 +671,28 @@ const P = {
   },
   mix(R, T, dim, {span = 6, n = 10} = {}) {
     const chs = CX.members(R, 'channel', T).map(c => c.key); if (chs.length < 2) return '';
-    let rows, title;
+    let rows, title, mixAll = 0;
     if (dim === 'channel') { rows = [{label: 'SS25', parts: Object.fromEntries(CX.members(R, 'channel', T).map(c => [c.key, c.v25]))}, {label: 'SS26', parts: Object.fromEntries(CX.members(R, 'channel', T).map(c => [c.key, c.v26]))}]; title = `Channel mix of ${MW()}, SS25 against SS26`; }
-    else { const m = CX.members(R, dim, T).slice(0, n), lead = chs[0];
+    else { const allM = CX.members(R, dim, T), m = allM.slice(0, n), lead = chs[0]; mixAll = allM.length;
       rows = m.map(g => { const p = {}; g.rows.forEach(d => p[d.channel] = (p[d.channel] || 0) + d.v26); return {label: clip(g.label, 12), parts: p, lead: g.v26 ? (p[lead] || 0) / g.v26 : 0, full: g.label}; });
       const hi = rows.slice().sort((a, b) => b.lead - a.lead)[0]; title = `${esc(lead)} is ${pct(T.v26 ? CX.members(R, 'channel', T)[0].v26 / T.v26 : 0, 0)} of SS26 ${MW()}, and its share is highest in ${esc(hi.full)} at ${pct(hi.lead, 0)}`; }
-    return panel({span, title, sub: dim === 'channel' ? `Share of each season's ${MW()} by channel.` : `SS26 ${MW()} by channel for the ${num(rows.length)} largest ${esc(dimName(dim))}s.`, body: segbars(rows, CH_ORDER.filter(c => chs.includes(c)), chColor)});
+    return panel({span, title, sub: dim === 'channel' ? `Share of each season's ${MW()} by channel.` : `SS26 ${MW()} by channel for ${many(rows.length, mixAll, dim)}.`, body: segbars(rows, CH_ORDER.filter(c => chs.includes(c)), chColor)});
   },
   asp(R, dim, {span = 6, n = 10} = {}) {
-    const all = CX.aspSpread(R, dim), rows = all.filter(r => r.q).slice(0, n); if (!rows.length) return '';
+    const all = CX.aspSpread(R, dim), ok = all.filter(r => r.q), rows = ok.slice(0, n); if (!rows.length) return '';
     const s = rows.slice().sort((a, b) => b.q[2] - a.q[2]), hi = s[0], lo = s[s.length - 1];
-    return panel({span, title: rows.length > 1 ? `Median dealer ASP runs from ₹${num(lo.q[2])} in ${esc(lo.label)} to ₹${num(hi.q[2])} in ${esc(hi.label)}` : `Median dealer ASP is ₹${num(hi.q[2])}`, sub: `Spread of dealer ASP in SS26 for the ${num(rows.length)} largest ${esc(dimName(dim))}s with at least 5 booking dealers. ASP is value ÷ qty, in ₹ per mtr.`, body: boxKey + chart(w => boxes(w, rows, {dim: dim === 'sg' ? null : dim})), twin: {cols: [C.text(dimName(dim), 'label'), C.int('Dealers', 'n'), C.asp('P10 ₹', r => r.q[0]), C.asp('P25 ₹', r => r.q[1]), C.asp('Median ₹', r => r.q[2]), C.asp('P75 ₹', r => r.q[3]), C.asp('P90 ₹', r => r.q[4]), C.asp('SS25 median ₹', 'm25')], rows}});
+    return panel({span, title: rows.length > 1 ? `Median dealer ASP runs from ₹${num(lo.q[2])} in ${esc(lo.label)} to ₹${num(hi.q[2])} in ${esc(hi.label)}` : `Median dealer ASP is ₹${num(hi.q[2])}`, sub: `Spread of dealer ASP in SS26 for ${many(rows.length, ok.length, dim)} with at least 5 booking dealers. ASP is value ÷ qty, in ₹ per mtr.`, body: boxKey + chart(w => boxes(w, rows, {dim: dim === 'sg' ? null : dim})), twin: {cols: [C.text(dimName(dim), 'label'), C.int('Dealers', 'n'), C.asp('P10 ₹', r => r.q[0]), C.asp('P25 ₹', r => r.q[1]), C.asp('Median ₹', r => r.q[2]), C.asp('P75 ₹', r => r.q[3]), C.asp('P90 ₹', r => r.q[4]), C.asp('SS25 median ₹', 'm25')], rows}});
   },
   heat(R, T, dim, {span = 7, n = 12} = {}) {
     if (dim === 'channel') return '';
-    const m = CX.members(R, dim, T).slice(0, n), chs = CH_ORDER.filter(c => R.some(d => d.channel === c)), map = new Map(); R.forEach(d => { const k = d[dim] + '|' + d.channel; if (!map.has(k)) map.set(k, []); map.get(k).push(d); });
+    const allM = CX.members(R, dim, T), m = allM.slice(0, n), chs = CH_ORDER.filter(c => R.some(d => d.channel === c)), map = new Map(); R.forEach(d => { const k = d[dim] + '|' + d.channel; if (!map.has(k)) map.set(k, []); map.get(k).push(d); });
     const lab = new Map(m.map(g => [g.label, g.key]));
-    return panel({span, title: `Growth by ${esc(dimName(dim))} and channel`, sub: `${MW()[0].toUpperCase() + MW().slice(1)} growth against SS25 for the ${num(m.length)} largest ${esc(dimName(dim))}s. Colour is capped at ±60%. Blank means no bookings in either season.`, body: heatTable(m.map(g => g.label), chs, (r, c) => { const g = map.get(lab.get(r) + '|' + c); if (!g) return null; const o = roll(g); return o.v25 > 0 ? o.g : o.v26 > 0 ? Infinity : null; }, {fmt: v => isFinite(v) ? sPct(v, 0) : 'New', diverge: true, max: .6})});
+    return panel({span, title: `Growth by ${esc(dimName(dim))} and channel`, sub: `${MW()[0].toUpperCase() + MW().slice(1)} growth against SS25 for ${many(m.length, allM.length, dim)}. Colour is capped at ±60%. Blank means no bookings in either season.`, body: heatTable(m.map(g => g.label), chs, (r, c) => { const g = map.get(lab.get(r) + '|' + c); if (!g) return null; const o = roll(g); return o.v25 > 0 ? o.g : o.v26 > 0 ? Infinity : null; }, {fmt: v => isFinite(v) ? sPct(v, 0) : 'New', diverge: true, max: .6})});
   },
 };
+/* "all 9 RSMs" when every group is shown, otherwise "the 12 largest ASMs". */
+const many = (k, total, dim) => k >= total ? `all ${num(k)} ${esc(dimName(dim))}s` : `the ${num(k)} largest ${esc(dimName(dim))}s`;
+const cap1 = t => t[0].toUpperCase() + t.slice(1);
 const moreCharts = html => html.trim() ? `<h2 class="more-h">More charts</h2><div class="grid">${html}</div>` : '';
 
 /* ---------- deeper analysis: builders ---------- */
@@ -823,25 +826,25 @@ Object.assign(P, {
       twin: {cols: [C.text('Dealer', r => r.d.name), C.text('City', r => r.d.city), C.text('ASM', r => r.d.asm), C.lakh('SS25 ₹ L', r => r.d.v25), C.lakh('SS26 ₹ L', r => r.d.v26), C.pct('Growth', r => r.d.g), {h: 'Robust z', n: 1, v: r => r.z, f: x => signed(x, v => (v > 0 ? '+' : v < 0 ? MINUS : '') + Math.abs(v).toFixed(1))}], rows: o.out, csv: CSV('outliers')}, note: 'Robust z-score = (log growth − median) ÷ (1.4826 × median absolute deviation). It is not distorted by the outliers themselves. Select Show table for the full list.'}); },
   movers(R, {span = 5} = {}) { const m = CX.movers(R); if (!m.gains.length && !m.losses.length) return '';
     return panel({span, title: `Gross gains of ${money(m.G)} and gross losses of ${money(m.L)} net to ${sMoney(m.G - m.L)}`, sub: `How concentrated the moves are. Each curve adds dealers from the largest move down. Gains include new dealers and losses include lost dealers.`, body: `<div class="legend"><span><i style="background:var(--gain)"></i>Gains, ${plural(m.gains.length, 'dealer')}</span><span><i style="background:var(--loss)"></i>Losses, ${plural(m.losses.length, 'dealer')}</span></div>` + chart(w => dualCum(w, m.gains, m.losses))}); },
-  kpi(R, T, dim, {span = 12, n = 12} = {}) { const m = CX.members(R, dim, T).slice(0, n); if (m.length < 2) return ''; const K = CX.kpis();
+  kpi(R, T, dim, {span = 12, n = 12} = {}) { const allM = CX.members(R, dim, T), m = allM.slice(0, n); if (m.length < 2) return ''; const K = CX.kpis();
     const score = m.map(g => { const ps = K.filter(k => k[3]).map(([, f, , dir]) => { const v = m.map(f).filter(x => x != null && isFinite(x)).sort((a, b) => a - b), x = f(g); if (x == null || !isFinite(x) || v.length < 2) return null; const p = (v.filter(y => y < x).length + (v.filter(y => y === x).length - 1) / 2) / (v.length - 1); return dir > 0 ? p : 1 - p; }).filter(p => p != null); return {g, s: ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : null}; }).filter(x => x.s != null).sort((a, b) => b.s - a.s);
-    return panel({span, title: score.length > 1 ? `${esc(score[0].g.label)} ranks best across the measures and ${esc(score[score.length - 1].g.label)} ranks last` : 'Benchmark grid', sub: `The ${num(m.length)} largest ${esc(dimName(dim))}s. Colour is the percentile against the others shown: blue is better, red is worse. A smaller largest-dealer share counts as better. New dealer share is not coloured. Ranking averages the coloured measures with equal weights.`, body: kpiGrid(m, K, {dim: dim === 'sg' ? null : dim})}); },
+    return panel({span, title: score.length > 1 ? `${esc(score[0].g.label)} ranks best across the measures and ${esc(score[score.length - 1].g.label)} ranks last` : 'Benchmark grid', sub: `${cap1(many(m.length, allM.length, dim))}. Colour is the percentile against the others shown: blue is better, red is worse. A smaller largest-dealer share counts as better. New dealer share is not coloured. Ranking averages the coloured measures with equal weights.`, body: kpiGrid(m, K, {dim: dim === 'sg' ? null : dim})}); },
   corr(R, T, dim, {span = 12} = {}) { const c = CX.corr(R, dim, T); if (!c) return ''; let best = null;
     const linked = new Set(['Growth|LFL growth', 'Growth|GRR', 'LFL growth|GRR', 'Dealer retention|GRR']), isL = (a, b) => linked.has(a + '|' + b) || linked.has(b + '|' + a);
     c.M.forEach((row, i) => row.forEach((r, j) => { if (j > i && r != null && !isL(c.labels[i], c.labels[j]) && (!best || Math.abs(r) > Math.abs(best.r))) best = {i, j, r}; }));
     return panel({span, title: best ? `Across ${num(c.n)} ${esc(dimName(dim))}s, ${esc(c.labels[best.i])} and ${esc(c.labels[best.j])} have the strongest ${best.r < 0 ? 'inverse ' : ''}link (ρ = ${(best.r < 0 ? MINUS : '') + Math.abs(best.r).toFixed(2)})` : 'Measure correlations', sub: `Spearman rank correlation between measures across ${esc(dimName(dim))}s that booked in both seasons. +1 means they rise together, −1 means one falls as the other rises. The headline skips pairs linked by definition, such as growth and LFL growth.${c.n < 15 ? ` Only ${num(c.n)} ${esc(dimName(dim))}s, so read these as directional.` : ''}`,
       body: heatTable(c.labels, c.labels, (r, k) => c.M[c.labels.indexOf(r)][c.labels.indexOf(k)], {fmt: v => (v < 0 ? MINUS : '') + Math.abs(v).toFixed(2), diverge: true, max: 1}), note: 'Correlation shows association across groups, not cause. Size is SS26 ' + MW() + '.'}); },
-  depend(R, T, dim, {span = 5, n = 12} = {}) { const d = CX.depend(R, dim, T).slice(0, n).sort((a, b) => b.top - a.top); if (!d.length) return ''; const t = d[0];
-    return panel({span, title: `In ${esc(t.label)}, one dealer books ${pct(t.top, 0)} of SS26 ${MW()}`, sub: `Share of SS26 ${MW()} from the single largest dealer, for the ${num(d.length)} largest ${esc(dimName(dim))}s. Hover for the dealer and how many dealers make half.`, body: chart(w => hbars(w, d.map(r => ({key: r.key, label: r.label, v: r.top, vt: pct(r.top, 0), c: r.top >= .5 ? 'var(--loss)' : r.top >= .25 ? 'var(--c4)' : 'var(--s26)', tip: [r.label, `Largest: ${r.topName}, ${pct(r.top)}`, `${plural(r.to50, 'dealer')} of ${num(r.act)} make half`]})), {dim: dim === 'sg' ? null : dim})),
+  depend(R, T, dim, {span = 5, n = 12} = {}) { const allD = CX.depend(R, dim, T), d = allD.slice(0, n).sort((a, b) => b.top - a.top); if (!d.length) return ''; const t = d[0];
+    return panel({span, title: `In ${esc(t.label)}, one dealer books ${pct(t.top, 0)} of SS26 ${MW()}`, sub: `Share of SS26 ${MW()} from the single largest dealer, for ${many(d.length, allD.length, dim)}. Hover for the dealer and how many dealers make half.`, body: chart(w => hbars(w, d.map(r => ({key: r.key, label: r.label, v: r.top, vt: pct(r.top, 0), c: r.top >= .5 ? 'var(--loss)' : r.top >= .25 ? 'var(--c4)' : 'var(--s26)', tip: [r.label, `Largest: ${r.topName}, ${pct(r.top)}`, `${plural(r.to50, 'dealer')} of ${num(r.act)} make half`]})), {dim: dim === 'sg' ? null : dim})),
       twin: {cols: [C.text(dimName(dim), 'label'), C.pct('Largest dealer share', 'top'), C.text('Largest dealer', r => clip(r.topName, 30)), C.int('Dealers for half', 'to50'), C.int('Active dealers', 'act')], rows: d}}); },
 });
 
 function renderCharts(R, T, K) {
-  const dim = state.cd, n = state.cn, mw = MW();
+  const dim = state.cd, n = state.cn || Infinity, mw = MW();
   const vital = (v, t, s) => `<div class="vital"><b>${v}</b><span>${t}</span><small>${s}</small></div>`;
   const ctl = `<div class="row ctlbar"><div class="ctl"><span>Measure</span><div class="seg" role="group" aria-label="Measure">${[['q', 'Qty'], ['v', 'Value ₹']].map(([k, l]) => `<button type="button" data-cm="${k}" aria-pressed="${state.cm === k}">${l}</button>`).join('')}</div></div>
     <label>Break down by<select id="cd">${DIMS.map(([k, l]) => `<option value="${k}" ${dim === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-    <label>Show<select id="cn">${[5, 8, 12, 20, 30].map(v => `<option value="${v}" ${n === v ? 'selected' : ''}>Top ${v}</option>`).join('')}</select></label></div>`;
+    <label>Show<select id="cn">${[5, 8, 12, 20, 30, 0].map(v => `<option value="${v}" ${state.cn === v ? 'selected' : ''}>${v ? 'Top ' + v : 'All'}</option>`).join('')}</select></label></div>`;
   const b1 = [{label: `SS25 ${mw}`, v: T.v25, total: 1, tip: `${num(T.act25)} active dealers`}, {label: `Lost dealers (${num(T.lost)})`, v: -T.lostV, tip: 'Booked SS25, no SS26 booking'}, {label: `Declining dealers (${num(T.dn)})`, v: T.dnV, tip: `Booked both seasons, ${mw} fell`}, {label: `Growing dealers (${num(T.up)})`, v: T.upV, tip: `Booked both seasons, ${mw} rose`}, {label: `New dealers (${num(T.neu)})`, v: T.newV, tip: 'Booked SS26 only'}, {label: `SS26 ${mw}`, v: T.v26, total: 1, tip: `${num(T.act26)} active dealers`}];
   const vitals = `<div class="vitals">
     ${vital(money(T.v26), `SS26 ${mw}`, `SS25 ${money(T.v25)}`)}
