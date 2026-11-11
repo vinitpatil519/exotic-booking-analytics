@@ -202,8 +202,10 @@ tfoot td{font-weight:600;border-top:1px solid var(--ink3);border-bottom:0}
 const PAYLOAD = JSON.parse(document.getElementById('data').textContent);
 const FIELDS = PAYLOAD.fields;
 const DEALERS = PAYLOAD.rows.map(r => { const o = {}; FIELDS.forEach((f, i) => o[f] = r[i]); return o; });
-const BANDS = [[0,'<₹1 L'],[1e5,'₹1–5 L'],[5e5,'₹5–10 L'],[1e6,'₹10–25 L'],[25e5,'₹25 L+']];
-const bandOf = v => { if (v <= 0) return 'Nil'; let b = BANDS[0][1]; for (const [t, l] of BANDS) if (v >= t) b = l; return b; };
+const VBANDS = [[0,'<₹1 L'],[1e5,'₹1–5 L'],[5e5,'₹5–10 L'],[1e6,'₹10–25 L'],[25e5,'₹25 L+']];
+const QBANDS = [[0,'<100'],[100,'100–500'],[500,'500–1,000'],[1000,'1,000–2,500'],[2500,'2,500+']];
+let BANDS = VBANDS;
+const bandOf = (v, bands = BANDS) => { if (v <= 0) return 'Nil'; let b = bands[0][1]; for (const [t, l] of bands) if (v >= t) b = l; return b; };
 DEALERS.forEach(d => {
   d.status = d.v25 > 0 && d.v26 > 0 ? 'Continuing' : d.v26 > 0 ? 'New' : 'Lost';
   d.dv = d.v26 - d.v25;
@@ -220,6 +222,16 @@ DEALERS.forEach(d => {
   d.actionable = d.isTrade && !String(d.key).startsWith('DELISTED');
   d.search = (d.name + ' ' + d.city + ' ' + d.asm + ' ' + d.rsm + ' ' + d.buyers + ' ' + d.state).toUpperCase();
 });
+/* Quantity view of the same dealers. Every page except Summary and Data notes compares qty, so v25/v26 hold qty here.
+   rv25/rv26 keep the rupee value so ASP (a price) is still rupees per unit. */
+const QDEALERS = DEALERS.map(d => {
+  const o = {...d, rv25: d.v25, rv26: d.v26, v25: d.q25, v26: d.q26};
+  o.dv = o.v26 - o.v25; o.g = o.v25 > 0 ? o.v26 / o.v25 - 1 : null; o.minv = Math.min(o.v25, o.v26);
+  o.vol = o.status === 'Continuing' ? o.dv : 0; o.rate = 0;
+  o.b25 = bandOf(o.v25, QBANDS); o.b26 = bandOf(o.v26, QBANDS);
+  return o;
+});
+let QTY = false;
 const CH_ORDER = ['TRS','COCO','MBO','Mini TRS','WHS'];
 const chColor = c => `var(--c${CH_ORDER.indexOf(c) + 1})`;
 
@@ -227,10 +239,12 @@ const chColor = c => `var(--c${CH_ORDER.indexOf(c) + 1})`;
 const MINUS = '−';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = (x, d = 0) => x == null || !isFinite(x) ? '–' : (x < 0 ? MINUS : '') + Math.abs(x).toLocaleString('en-IN', {minimumFractionDigits: d, maximumFractionDigits: d});
-const money = x => { if (x == null || !isFinite(x)) return '–'; const a = Math.abs(x), s = x < 0 ? MINUS : '';
+const rupees = x => { if (x == null || !isFinite(x)) return '–'; const a = Math.abs(x), s = x < 0 ? MINUS : '';
   if (a >= 1e7) return `${s}₹${(a / 1e7).toFixed(2)} Cr`; if (a >= 1e5) return `${s}₹${(a / 1e5).toFixed(2)} L`; return `${s}₹${a.toLocaleString('en-IN', {maximumFractionDigits: 0})}`; };
+const units = x => x == null || !isFinite(x) ? '–' : num(x) + ' units';
+const money = x => QTY ? units(x) : rupees(x);
 const sMoney = x => (x > 0 ? '+' : '') + money(x);
-const lakh = x => num(x / 1e5, 2);
+const lakh = x => QTY ? num(x) : num(x / 1e5, 2);
 const pct = (x, d = 1) => x == null || !isFinite(x) ? '–' : (x < 0 ? MINUS : '') + Math.abs(x * 100).toFixed(d) + '%';
 const sPct = (x, d = 1) => x == null || !isFinite(x) ? '–' : (x > 0 ? '+' : '') + pct(x, d);
 const pts = x => x == null || !isFinite(x) ? '–' : (x > 0 ? '+' : '') + (x < 0 ? MINUS : '') + Math.abs(x).toFixed(2);
@@ -241,16 +255,16 @@ const median = a => { const s = a.filter(v => v != null && isFinite(v)).sort((x,
 
 /* ---------- metrics ---------- */
 function roll(rows) {
-  const o = {n: rows.length, v25: 0, v26: 0, q25: 0, q26: 0, act25: 0, act26: 0, cont: 0, lost: 0, neu: 0, lostV: 0, newV: 0, c25: 0, c26: 0, minv: 0, vol: 0, rate: 0, up: 0, dn: 0, upV: 0, dnV: 0, top: 0, topName: ''};
+  const o = {n: rows.length, v25: 0, v26: 0, q25: 0, q26: 0, r25: 0, r26: 0, act25: 0, act26: 0, cont: 0, lost: 0, neu: 0, lostV: 0, newV: 0, c25: 0, c26: 0, minv: 0, vol: 0, rate: 0, up: 0, dn: 0, upV: 0, dnV: 0, top: 0, topName: ''};
   for (const d of rows) {
-    o.v25 += d.v25; o.v26 += d.v26; o.q25 += d.q25; o.q26 += d.q26; o.minv += d.minv; o.vol += d.vol; o.rate += d.rate;
+    o.v25 += d.v25; o.v26 += d.v26; o.q25 += d.q25; o.q26 += d.q26; o.r25 += d.rv25 ?? d.v25; o.r26 += d.rv26 ?? d.v26; o.minv += d.minv; o.vol += d.vol; o.rate += d.rate;
     if (d.v25 > 0) o.act25++; if (d.v26 > 0) o.act26++;
     if (d.status === 'Continuing') { o.cont++; o.c25 += d.v25; o.c26 += d.v26; if (d.dv > 0) { o.up++; o.upV += d.dv; } else if (d.dv < 0) { o.dn++; o.dnV += d.dv; } }
     else if (d.status === 'Lost') { o.lost++; o.lostV += d.v25; } else { o.neu++; o.newV += d.v26; }
     if (d.v26 > o.top) { o.top = d.v26; o.topName = d.name; }
   }
   o.dv = o.v26 - o.v25; o.g = o.v25 > 0 ? o.v26 / o.v25 - 1 : null;
-  o.a25 = o.q25 > 0 ? o.v25 / o.q25 : null; o.a26 = o.q26 > 0 ? o.v26 / o.q26 : null; o.da = o.a25 && o.a26 ? o.a26 / o.a25 - 1 : null;
+  o.a25 = o.q25 > 0 ? o.r25 / o.q25 : null; o.a26 = o.q26 > 0 ? o.r26 / o.q26 : null; o.da = o.a25 && o.a26 ? o.a26 / o.a25 - 1 : null;
   o.logo = o.act25 ? o.cont / o.act25 : null; o.lfl = o.c25 > 0 ? o.c26 / o.c25 - 1 : null; o.nrr = o.v25 > 0 ? o.c26 / o.v25 : null; o.grr = o.v25 > 0 ? o.minv / o.v25 : null;
   o.perDealer = o.act26 ? o.v26 / o.act26 : null; o.topShare = o.v26 > 0 ? o.top / o.v26 : null;
   return o;
@@ -282,13 +296,16 @@ const FILTERS = [['scope','Dealer scope'],['nh','National head'],['rsm','RSM'],[
 const state = {f: {scope: 'all', nh: '', rsm: '', asm: '', channel: '', state: '', sg: ''}, section: 'summary',
   topN: 25, topBy: 'v26', cityN: 25, heatM: 'v26', list: 'winback',
   riskBase: 5e5, riskDrop: .3, riseBase: 1e5, riseGain: .25, priceGap: .15, priceBase: 1e5,
-  lv: {win: 25, risk: 30, price: 25}, q: '', st: '', page: 0};
+  lv: {win: 25, risk: 30, price: 25}, q: '', st: '', page: 0,
+  qth: {riskBase: 500, riseBase: 100, priceBase: 100}};
+/* Action thresholds: rupees on Summary, qty on Actions. */
+const th = k => QTY && k in state.qth ? state.qth[k] : state[k];
 const pass = (d, skip) => FILTERS.every(([k]) => {
   if (k === skip) return true; const v = state.f[k];
   if (k === 'scope') return v === 'all' || (v === 'trade' ? d.isTrade : !d.isTrade);
   return !v || String(d[k]) === String(v);
 });
-const view = () => DEALERS.filter(d => pass(d));
+const view = () => (QTY ? QDEALERS : DEALERS).filter(d => pass(d));
 
 /* ---------- render plumbing ---------- */
 const charts = new Map(), tables = new Map(); let uid = 0;
@@ -337,7 +354,7 @@ function fitSegLabels() { document.querySelectorAll('.segbar div').forEach(d => 
 /* ---------- common column sets ---------- */
 const C = {
   text: (h, k, o = {}) => ({h, v: r => typeof k === 'function' ? k(r) : r[k], ...o}),
-  lakh: (h, k, o = {}) => ({h, n: 1, v: r => typeof k === 'function' ? k(r) : r[k], f: x => x == null ? '–' : signed(x, lakh), ...o}),
+  lakh: (h, k, o = {}) => ({h: QTY ? h.replace('₹ L per dealer', 'Qty per dealer').replace(/₹ L/g, 'qty') : h, id: h, n: 1, v: r => typeof k === 'function' ? k(r) : r[k], f: x => x == null ? '–' : signed(x, lakh), ...o}),
   pct: (h, k, o = {}) => ({h, n: 1, v: r => typeof k === 'function' ? k(r) : r[k], f: x => x == null ? '–' : signed(x, pct), ...o}),
   int: (h, k, o = {}) => ({h, n: 1, v: r => typeof k === 'function' ? k(r) : r[k], f: x => num(x), ...o}),
   pts: (h, k, o = {}) => ({h, n: 1, v: r => typeof k === 'function' ? k(r) : r[k], f: x => signed(x, pts), ...o}),
@@ -348,6 +365,7 @@ const scoreCols = (first, extra = []) => [C.text(first, 'label'), ...extra,
   C.pct('LFL growth', 'lfl'), C.pct('Dealer retention', 'logo'), C.pct('GRR', 'grr'), C.int('Lost', 'lost'), C.int('New', 'neu'), C.lakh('₹ L per dealer', 'perDealer'), C.asp('ASP SS26', 'a26'), C.pct('ASP change', 'da'), C.pct('Largest dealer', 'topShare')];
 const dealerCols = () => [C.text('Dealer', 'name'), C.text('City', 'city'), C.text('ASM', 'asm'), C.text('Channel', 'channel'),
   C.lakh('SS25 ₹ L', 'v25'), C.lakh('SS26 ₹ L', 'v26'), C.lakh('Change ₹ L', 'dv'), C.pct('Growth', 'g'), C.asp('ASP SS26', 'a26')];
+const hid = c => c.id || c.h;
 const reviewCol = {h: 'Review', v: r => r.review || '', f: x => x ? `<span class="tag flag" title="See Data notes">${esc(x)}</span>` : '', nosort: 1};
 
 /* ---------- SVG charts ---------- */
@@ -414,8 +432,8 @@ function lorenz(w, s25, s26, H = 280) {
   out += `<text class="tick" text-anchor="middle" x="${ml + pw / 2}" y="${H - 4}">Share of active dealers, largest first</text>`;
   out += `<line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(100)}" y2="${sy(100)}" stroke="var(--axis)"/>`;
   out += `<path d="${path(a)}" fill="none" stroke="var(--s25)" stroke-width="2" stroke-linejoin="round"/><path d="${path(b)}" fill="none" stroke="var(--s26)" stroke-width="2" stroke-linejoin="round"/>`;
-  for (let x = 1; x <= 100; x++) out += `<rect x="${sx(x - 1)}" y="${mt}" width="${pw / 100 + .5}" height="${ph}" fill="transparent" class="xhair" ${tipAttr([`Top ${x}% of dealers`, `SS26: ${at(b, x).toFixed(1)}% of value`, `SS25: ${at(a, x).toFixed(1)}% of value`])}/>`;
-  return `<svg width="${w}" height="${H}" role="img" aria-label="Cumulative value curve">${out}</svg>`;
+  for (let x = 1; x <= 100; x++) out += `<rect x="${sx(x - 1)}" y="${mt}" width="${pw / 100 + .5}" height="${ph}" fill="transparent" class="xhair" ${tipAttr([`Top ${x}% of dealers`, `SS26: ${at(b, x).toFixed(1)}% of qty`, `SS25: ${at(a, x).toFixed(1)}% of qty`])}/>`;
+  return `<svg width="${w}" height="${H}" role="img" aria-label="Cumulative qty curve">${out}</svg>`;
 }
 function scatter(w, pts_, o) {
   const H = o.H || 360, ml = 56, mb = 44, mt = 10, mr = 14, pw = w - ml - mr, ph = H - mb - mt;
@@ -520,7 +538,8 @@ function renderSummary(R, T, K) {
 }
 
 function renderDealers(R, T, K) {
-  const by = {v26: ['SS26 value', d => d.v26], v25: ['SS25 value', d => d.v25], q26: ['SS26 qty', d => d.q26], gain: ['Largest rupee gain', d => d.dv], loss: ['Largest rupee loss', d => -d.dv], gp: ['Highest growth % (SS25 ≥ ₹1 L)', d => d.v25 >= 1e5 && d.v26 > 0 ? d.g : null], hi: ['Highest ASP (SS26 qty ≥ 100)', d => d.q26 >= 100 ? d.a26 : null], lo: ['Lowest ASP (SS26 qty ≥ 100)', d => d.q26 >= 100 ? -d.a26 : null]};
+  const by = {v26: ['SS26 qty', d => d.v26], v25: ['SS25 qty', d => d.v25], gain: ['Largest qty gain', d => d.dv], loss: ['Largest qty loss', d => -d.dv], gp: ['Highest growth % (SS25 ≥ 100 units)', d => d.v25 >= 100 && d.v26 > 0 ? d.g : null], hi: ['Highest ASP (SS26 qty ≥ 100)', d => d.q26 >= 100 ? d.a26 : null], lo: ['Lowest ASP (SS26 qty ≥ 100)', d => d.q26 >= 100 ? -d.a26 : null]};
+  if (!by[state.topBy]) state.topBy = 'v26';
   const [byName, score] = by[state.topBy];
   const ranked = R.map(d => [d, score(d)]).filter(x => x[1] != null && x[1] > 0).sort((a, b) => b[1] - a[1]);
   const list = (state.topN ? ranked.slice(0, state.topN) : ranked).map((x, i) => ({...x[0], rank: i + 1}));
@@ -537,19 +556,19 @@ function renderDealers(R, T, K) {
   const abcRows = Object.entries(abc).map(([k, g]) => { const o = roll(g); o.label = k; o.share = T.v26 ? o.v26 / T.v26 : 0; o.dealerShare = act.length ? g.length / act.length : 0; o.avg = g.length ? o.v26 / g.length : 0; return o; });
   const bn = BANDS.map(b => b[1]);
   const bandCats = bn.map(b => ({label: b, a: R.filter(d => d.b25 === b).length, b: R.filter(d => d.b26 === b).length}));
-  const big = R.filter(d => d.b25 === '₹25 L+'); const bigStay = big.filter(d => d.b26 === '₹25 L+').length;
+  const topBand = bn[bn.length - 1], big = R.filter(d => d.b25 === topBand); const bigStay = big.filter(d => d.b26 === topBand).length;
   const migRows = ['Nil', ...bn], migCols = ['Nil', ...bn];
   const mc = {}, mv = {}; R.forEach(d => { const k = d.b25 + '|' + d.b26; mc[k] = (mc[k] || 0) + 1; mv[k] = (mv[k] || 0) + d.v26; });
   const groups = rollup(R.filter(d => d.group), 'group', T).slice(0, 16);
   groups.forEach(g => { g.codes = g.n; g.cities = new Set(g.rows.map(d => d.city)).size; });
-  return secHead('Dealers', 'Who books the value, how concentrated it is, and how dealers move between size bands.') + `<div class="grid">
-    ${panel({title: state.topBy === 'v26' || state.topBy === 'q26' || state.topBy === 'v25' ? `${state.topN ? 'Top ' + state.topN + ' dealers' : 'All dealers'} ${state.topBy === 'v25' ? 'by SS25 value' : ''} hold ${pct(listV / (T.v26 || 1))} of SS26 value` : `${byName}: ${plural(list.length, 'dealer')} shown`, sub: 'Choose a list size and a ranking. Select a column heading to sort.', body: controls + table({cols, rows: list, csv: `exotic-dealers-${state.topBy}`})})}
-    ${panel({span: 5, title: `${num(K.to80)} dealers build 80% of value, so no single name carries the season`, sub: 'Dealer concentration against the previous season.', body: table({cols: [C.text('Group', 'label', {nosort: 1}), {h: 'SS25 share', n: 1, v: r => r.a, f: x => pct(x), nosort: 1}, {h: 'SS26 share', n: 1, v: r => r.b, f: x => pct(x), nosort: 1}, {h: 'Change pts', n: 1, v: r => (r.b - r.a) * 100, f: x => signed(x, pts), nosort: 1}], rows: topRows}) + `<div style="margin-top:12px">${table({cols: [{h: 'Measure', v: r => r[0], nosort: 1}, {h: 'SS26', n: 1, v: r => r[1], f: x => x ?? '–', nosort: 1}], rows: [['Dealers for 50% of value', num(K.to50)], ['HHI (below 1,500 reads as unconcentrated)', num(K.hhi, 1)], ['Effective dealers (10,000 ÷ HHI)', num(K.eff)], ['Gini coefficient', K.gini?.toFixed(3)], ['Mean value per dealer', money(K.mean)], ['Median value per dealer', money(K.median)]]})}</div>`})}
-    ${panel({span: 7, title: `Value curve: ${pct(topShare(R, 'v26', Math.ceil(K.n * .2) || 1), 0)} of value comes from the top 20% of dealers`, sub: 'Cumulative share of value. A curve further from the diagonal means more concentration. Hover for values.', body: seasonLegend + chart(w => lorenz(w, R.map(d => d.v25), R.map(d => d.v26), 400)), twin: {cols: [C.int('Decile', 'label'), C.pct('Cum. share SS26', 'cum')], rows: deciles}})}
-    ${panel({span: 7, title: `The smaller half of active dealers books ${pct(half)} of value`, sub: 'Active SS26 dealers in ten equal groups, largest first.', body: table({cols: [C.int('Decile', 'label', {nosort: 1}), C.int('Dealers', 'n', {nosort: 1}), C.lakh('SS26 ₹ L', 'v26', {bar: 1, nosort: 1}), C.pct('Share', 'share', {nosort: 1}), C.pct('Cum. share', 'cum', {nosort: 1}), C.lakh('₹ L per dealer', 'avg', {nosort: 1}), C.asp('ASP SS26', 'a26', {nosort: 1}), C.pct('Growth', 'g', {nosort: 1})], rows: deciles}), note: 'Growth by decile carries selection bias: dealers are ranked on SS26, so low deciles hold dealers who fell.'})}
-    ${panel({span: 5, title: `Class A: ${plural(abc.A.length, 'dealer')} and ${pct(abcRows[0].share, 0)} of value`, sub: 'A builds the first 80% of SS26 value, B the next 15%, C the last 5%.', body: table({cols: [C.text('Class', 'label', {nosort: 1}), C.int('Dealers', 'act26', {nosort: 1}), C.pct('Dealer share', 'dealerShare', {nosort: 1}), C.lakh('SS26 ₹ L', 'v26', {nosort: 1}), C.pct('Value share', 'share', {nosort: 1}), C.lakh('₹ L per dealer', 'avg', {nosort: 1}), C.asp('ASP SS26', 'a26', {nosort: 1})], rows: abcRows})
+  return secHead('Dealers', 'Who books the qty, how concentrated it is, and how dealers move between size bands. All figures are booking qty.') + `<div class="grid">
+    ${panel({title: state.topBy === 'v26' || state.topBy === 'v25' ? `${state.topN ? 'Top ' + state.topN + ' dealers' : 'All dealers'} ${state.topBy === 'v25' ? 'by SS25 qty' : ''} hold ${pct(listV / (T.v26 || 1))} of SS26 qty` : `${byName}: ${plural(list.length, 'dealer')} shown`, sub: 'Choose a list size and a ranking. Select a column heading to sort.', body: controls + table({cols, rows: list, csv: `exotic-dealers-${state.topBy}`})})}
+    ${panel({span: 5, title: `${num(K.to80)} dealers build 80% of qty, so no single name carries the season`, sub: 'Dealer concentration against the previous season.', body: table({cols: [C.text('Group', 'label', {nosort: 1}), {h: 'SS25 share', n: 1, v: r => r.a, f: x => pct(x), nosort: 1}, {h: 'SS26 share', n: 1, v: r => r.b, f: x => pct(x), nosort: 1}, {h: 'Change pts', n: 1, v: r => (r.b - r.a) * 100, f: x => signed(x, pts), nosort: 1}], rows: topRows}) + `<div style="margin-top:12px">${table({cols: [{h: 'Measure', v: r => r[0], nosort: 1}, {h: 'SS26', n: 1, v: r => r[1], f: x => x ?? '–', nosort: 1}], rows: [['Dealers for 50% of qty', num(K.to50)], ['HHI (below 1,500 reads as unconcentrated)', num(K.hhi, 1)], ['Effective dealers (10,000 ÷ HHI)', num(K.eff)], ['Gini coefficient', K.gini?.toFixed(3)], ['Mean qty per dealer', money(K.mean)], ['Median qty per dealer', money(K.median)]]})}</div>`})}
+    ${panel({span: 7, title: `Qty curve: ${pct(topShare(R, 'v26', Math.ceil(K.n * .2) || 1), 0)} of qty comes from the top 20% of dealers`, sub: 'Cumulative share of qty. A curve further from the diagonal means more concentration. Hover for values.', body: seasonLegend + chart(w => lorenz(w, R.map(d => d.v25), R.map(d => d.v26), 400)), twin: {cols: [C.int('Decile', 'label'), C.pct('Cum. share SS26', 'cum')], rows: deciles}})}
+    ${panel({span: 7, title: `The smaller half of active dealers books ${pct(half)} of qty`, sub: 'Active SS26 dealers in ten equal groups, largest first.', body: table({cols: [C.int('Decile', 'label', {nosort: 1}), C.int('Dealers', 'n', {nosort: 1}), C.lakh('SS26 ₹ L', 'v26', {bar: 1, nosort: 1}), C.pct('Share', 'share', {nosort: 1}), C.pct('Cum. share', 'cum', {nosort: 1}), C.lakh('₹ L per dealer', 'avg', {nosort: 1}), C.asp('ASP SS26', 'a26', {nosort: 1}), C.pct('Growth', 'g', {nosort: 1})], rows: deciles}), note: 'Growth by decile carries selection bias: dealers are ranked on SS26, so low deciles hold dealers who fell.'})}
+    ${panel({span: 5, title: `Class A: ${plural(abc.A.length, 'dealer')} and ${pct(abcRows[0].share, 0)} of qty`, sub: 'A builds the first 80% of SS26 qty, B the next 15%, C the last 5%.', body: table({cols: [C.text('Class', 'label', {nosort: 1}), C.int('Dealers', 'act26', {nosort: 1}), C.pct('Dealer share', 'dealerShare', {nosort: 1}), C.lakh('SS26 ₹ L', 'v26', {nosort: 1}), C.pct('Qty share', 'share', {nosort: 1}), C.lakh('₹ L per dealer', 'avg', {nosort: 1}), C.asp('ASP SS26', 'a26', {nosort: 1})], rows: abcRows})
       + `<div style="margin-top:14px">${seasonLegend}${chart(w => columns(w, bandCats, {H: 190}))}</div>`, note: 'Columns count active dealers per size band.'})}
-    ${panel({span: 6, title: big.length ? `${num(bigStay)} of ${num(big.length)} dealers above ₹25 L in SS25 stayed in that band` : 'How dealers moved between size bands', sub: 'Dealer count. Rows show the SS25 band and columns the SS26 band.', body: heatTable(migRows, migCols, (r, c) => mc[r + '|' + c] ?? null, {fmt: v => num(v), corner: 'SS25 band', max: Math.max(...Object.values(mc), 1)}) + `<p class="p-sub" style="margin:14px 0 6px">SS26 value in ₹ L for the same cells.</p>` + heatTable(migRows.slice(1).concat([]).length ? migRows : migRows, migCols.slice(1), (r, c) => mv[r + '|' + c] ?? null, {fmt: v => num(v / 1e5, 1), corner: 'SS25 band', max: Math.max(...Object.values(mv), 1)})})}
+    ${panel({span: 6, title: big.length ? `${num(bigStay)} of ${num(big.length)} dealers at ${topBand} units in SS25 stayed in that band` : 'How dealers moved between size bands', sub: 'Dealer count. Rows show the SS25 band and columns the SS26 band.', body: heatTable(migRows, migCols, (r, c) => mc[r + '|' + c] ?? null, {fmt: v => num(v), corner: 'SS25 band', max: Math.max(...Object.values(mc), 1)}) + `<p class="p-sub" style="margin:14px 0 6px">SS26 qty for the same cells.</p>` + heatTable(migRows, migCols.slice(1), (r, c) => mv[r + '|' + c] ?? null, {fmt: v => num(v), corner: 'SS25 band', max: Math.max(...Object.values(mv), 1)})})}
     ${panel({span: 6, title: groups.length ? `${esc(clip(groups[0].label, 34))} is the largest same-name group at ${money(groups[0].v26)}` : 'Same-name dealer groups', sub: 'Codes grouped by name. The file has no parent code, so confirm before treating a group as one account.', body: table({cols: [C.text('Group', r => clip(r.label, 30)), C.int('Codes', 'codes'), C.int('Cities', 'cities'), C.lakh('SS26 ₹ L', 'v26', {bar: 1}), C.pct('Growth', 'g')], rows: groups})})}
   </div>`;
 }
@@ -572,16 +591,16 @@ function renderTeam(R, T) {
   const sorted = field.slice().sort((a, b) => b.cpp - a.cpp); const movers = [...sorted.slice(0, 7), ...sorted.slice(-7)].filter((v, i, a) => a.indexOf(v) === i);
   const outliers = [...field].sort((a, b) => Math.abs(b.lfl - medY) * Math.log10(b.v26 + 10) - Math.abs(a.lfl - medY) * Math.log10(a.v26 + 10)).slice(0, 8);
   const xs = field.map(a => a.v26).filter(v => v > 0);
-  const x0 = Math.floor(Math.log10(Math.max(Math.min(...xs, 1e6), 1)) * 2) / 2, x1 = Math.ceil(Math.log10(Math.max(...xs, 1e6)) * 2) / 2;
+  const x0 = Math.floor(Math.log10(Math.max(Math.min(...xs, 1e3), 1)) * 2) / 2, x1 = Math.ceil(Math.log10(Math.max(...xs, 1e3)) * 2) / 2;
   const ylo = Math.max(-1, Math.floor(Math.min(...field.map(a => a.lfl), -.1) * 5) / 5), yhi = Math.min(1.5, Math.ceil(Math.max(...field.map(a => a.lfl), .1) * 5) / 5);
-  const xt = [1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8, 5e8].filter(t => Math.log10(t) >= x0 && Math.log10(t) <= x1);
+  const xt = [1e2, 5e2, 1e3, 5e3, 1e4, 5e4, 1e5, 5e5].filter(t => Math.log10(t) >= x0 && Math.log10(t) <= x1);
   const best = field.slice().sort((a, b) => (b.healthRank ?? 0) - (a.healthRank ?? 0)).reverse()[0];
-  return secHead('Sales team', 'Scorecards for national heads, RSMs, ASMs and sales groups. Select a row to filter the whole report.') + `<div class="grid">
+  return secHead('Sales team', 'Scorecards for national heads, RSMs, ASMs and sales groups, in booking qty. Select a row to filter the whole report.') + `<div class="grid">
     ${nh.length > 1 ? panel({title: `${esc(nh[0].label)} has the largest book at ${money(nh[0].v26)}, ${sPct(nh[0].g)} against SS25`, sub: 'National head level.', body: table({cols: scoreCols('National head'), rows: nh, drill: 'nh', total: {...T, label: 'Total', share: 1, cpp: T.g * 100}})}) : ''}
     ${panel({title: rs.length > 1 ? `${plural(rs.filter(r => r.label !== 'COCO' && r.dv < 0).length, 'of ' + rs.filter(r => r.label !== 'COCO').length + ' RSM')} declined against SS25` : 'RSM scorecard', sub: 'COCO appears as its own line because the source reports company stores outside the field hierarchy.', body: table({cols: scoreCols('RSM'), rows: rs, drill: 'rsm', total: {...T, label: 'Total', share: 1, cpp: T.g * 100}, csv: 'exotic-rsm-scorecard'})})}
-    ${field.length > 2 ? panel({span: 7, title: `${num(growing)} of ${num(field.length)} ASMs grew like-for-like`, sub: 'Territory size against LFL growth. The crossing lines mark the median ASM. Log scale. Select a dot to filter.', body: chart(w => scatter(w, field.map(a => ({x: Math.max(a.v26, 1), y: a.lfl, label: a.label, tip: [a.label, `SS26 ${money(a.v26)}`, `LFL growth ${sPct(a.lfl)}`, `Dealer retention ${pct(a.logo)}`, `RSM: ${a.rsm}`], r: 5, op: .8})), {xLog: 1, x0, x1, y0: ylo, y1: yhi, xt, yt: ticks(ylo, yhi, 6), xf: v => '₹' + axisMoney(v), yf: v => pct(v, 0), xTitle: 'SS26 value of territory (log scale)', yTitle: 'LFL growth', xRef: medX, yRef: medY, dim: 'asm', aria: 'ASM territory size against like-for-like growth', labels: outliers.map(a => ({x: Math.max(a.v26, 1), y: a.lfl, label: a.label})), corners: [{x: 'r', y: 't', t: 'Large and growing'}, {x: 'l', y: 't', t: 'Small and growing'}, {x: 'r', y: 'b', t: 'Large and shrinking'}, {x: 'l', y: 'b', t: 'Small and shrinking'}]}))}) : ''}
+    ${field.length > 2 ? panel({span: 7, title: `${num(growing)} of ${num(field.length)} ASMs grew like-for-like`, sub: 'Territory size against LFL growth. The crossing lines mark the median ASM. Log scale. Select a dot to filter.', body: chart(w => scatter(w, field.map(a => ({x: Math.max(a.v26, 1), y: a.lfl, label: a.label, tip: [a.label, `SS26 ${money(a.v26)}`, `LFL growth ${sPct(a.lfl)}`, `Dealer retention ${pct(a.logo)}`, `RSM: ${a.rsm}`], r: 5, op: .8})), {xLog: 1, x0, x1, y0: ylo, y1: yhi, xt, yt: ticks(ylo, yhi, 6), xf: v => axisMoney(v), yf: v => pct(v, 0), xTitle: 'SS26 qty of territory (log scale)', yTitle: 'LFL growth', xRef: medX, yRef: medY, dim: 'asm', aria: 'ASM territory size against like-for-like growth', labels: outliers.map(a => ({x: Math.max(a.v26, 1), y: a.lfl, label: a.label})), corners: [{x: 'r', y: 't', t: 'Large and growing'}, {x: 'l', y: 't', t: 'Small and growing'}, {x: 'r', y: 'b', t: 'Large and shrinking'}, {x: 'l', y: 'b', t: 'Small and shrinking'}]}))}) : ''}
     ${field.length > 2 ? panel({span: 5, title: `${esc(sorted[0].label)} added the most, ${esc(sorted[sorted.length - 1].label)} lost the most`, sub: 'Largest ASM movers, in points of total growth. Select a bar to filter.', body: chart(w => divBars(w, movers.map(a => ({label: a.label, v: a.cpp, tip: `${sMoney(a.dv)}, ${sPct(a.g)}`})), {dim: 'asm', labelW: Math.min(w * .38, 160)}))}) : ''}
-    ${panel({title: best ? `${esc(best.label)} leads the territory health index` : 'ASM scorecard', sub: 'Health index averages percentile ranks on LFL growth, dealer retention, value per dealer and ASP, using equal weights. Select a row to filter.', body: table({cols: scoreCols('ASM', [C.text('RSM', 'rsm'), ...healthCols]), rows: asm, drill: 'asm', total: {...T, label: 'Total', rsm: '', share: 1, cpp: T.g * 100}, csv: 'exotic-asm-scorecard'}), note: 'Index ranks are relative to the ASMs in the current filter. "Vacant 2" is the label used in the source.'})}
+    ${panel({title: best ? `${esc(best.label)} leads the territory health index` : 'ASM scorecard', sub: 'Health index averages percentile ranks on LFL qty growth, dealer retention, qty per dealer and ASP, using equal weights. Select a row to filter.', body: table({cols: scoreCols('ASM', [C.text('RSM', 'rsm'), ...healthCols]), rows: asm, drill: 'asm', total: {...T, label: 'Total', rsm: '', share: 1, cpp: T.g * 100}, csv: 'exotic-asm-scorecard'}), note: 'Index ranks are relative to the ASMs in the current filter. "Vacant 2" is the label used in the source.'})}
     ${panel({title: `Sales group ${esc(sg[0]?.label)} is the largest at ${money(sg[0]?.v26)}`, sub: 'Sales group codes as in the source, with the largest cities for orientation.', body: table({cols: scoreCols('Sales group', [C.text('Largest cities', 'cities'), C.text('RSM', 'rsm')]).map(c => c.h === 'Sales group' ? {...c, n: 0} : c), rows: sg, drill: 'sg'})})}
   </div>`;
 }
@@ -596,21 +615,21 @@ function renderGeo(R, T) {
   const shown = state.cityN ? city.slice(0, state.cityN) : city;
   const cityCtl = `<div class="row"><label>Show<select id="cityN">${[10, 25, 50, 100, 0].map(n => `<option value="${n}" ${state.cityN === n ? 'selected' : ''}>${n ? 'Top ' + n : 'All ' + city.length}</option>`).join('')}</select></label></div>`;
   const cityCols = [C.text('City', 'label'), C.text('State', 'state'), C.int('Active SS26', 'act26'), C.lakh('SS25 ₹ L', 'v25'), C.lakh('SS26 ₹ L', 'v26', {bar: 1}), C.lakh('Change ₹ L', 'dv'), C.pct('Growth', 'g'), C.pct('Share', 'share'), C.pct('Dealer retention', 'logo'), C.asp('ASP SS26', 'a26'), C.pct('Largest dealer', 'topShare'), C.text('Largest dealer name', r => clip(r.topName || '–', 32))];
-  const mode = state.heatM, mf = {v26: [g => g.length ? roll(g).v26 : null, v => num(v / 1e5, 1), false, 'SS26 value in ₹ L'], g: [g => { const o = roll(g); return o.v25 > 0 ? o.g : null; }, v => sPct(v, 0), true, 'Growth against SS25, capped at ±60% for colour'], act: [g => g.length ? roll(g).act26 : null, v => num(v), false, 'Active SS26 dealers'], asp: [g => roll(g).a26, v => num(v), false, 'SS26 ASP in ₹']}[mode];
+  const mode = state.heatM, mf = {v26: [g => g.length ? roll(g).v26 : null, v => num(v), false, 'SS26 qty'], g: [g => { const o = roll(g); return o.v25 > 0 ? o.g : null; }, v => sPct(v, 0), true, 'Growth against SS25, capped at ±60% for colour'], act: [g => g.length ? roll(g).act26 : null, v => num(v), false, 'Active SS26 dealers'], asp: [g => roll(g).a26, v => num(v), false, 'SS26 ASP in ₹']}[mode];
   const heatFor = (dimVals, dim, drill, colsUse = chs) => { const m = new Map(); R.forEach(d => { const k = d[dim] + '|' + d.channel; if (!m.has(k)) m.set(k, []); m.get(k).push(d); }); return heatTable(dimVals, colsUse, (r, c) => { const g = m.get(r + '|' + c); return g ? mf[0](g) : null; }, {fmt: mf[1], diverge: mf[2], max: mf[2] ? .6 : mode === 'asp' ? null : null, corner: '', dimR: drill}); };
-  const heatCtl = `<div class="row"><div class="seg" role="group" aria-label="Heatmap measure">${[['v26','Value'],['g','Growth'],['act','Dealers'],['asp','ASP']].map(([k, l]) => `<button type="button" data-heat="${k}" aria-pressed="${mode === k}">${l}</button>`).join('')}</div></div>`;
+  const heatCtl = `<div class="row"><div class="seg" role="group" aria-label="Heatmap measure">${[['v26','Qty'],['g','Growth'],['act','Dealers'],['asp','ASP']].map(([k, l]) => `<button type="button" data-heat="${k}" aria-pressed="${mode === k}">${l}</button>`).join('')}</div></div>`;
   const rsmVals = rollup(R, 'rsm', T).map(r => r.label).filter(r => r !== 'COCO');
-  const depend = city.filter(c => c.v26 >= 25e5 && c.topShare >= .5).sort((a, b) => b.v26 - a.v26);
+  const depend = city.filter(c => c.v26 >= 2500 && c.topShare >= .5).sort((a, b) => b.v26 - a.v26);
   const gone = city.filter(c => c.v25 > 0 && c.v26 === 0).sort((a, b) => b.v25 - a.v25), fresh = city.filter(c => c.v25 === 0 && c.v26 > 0).sort((a, b) => b.v26 - a.v26);
-  return secHead('Geography', 'State and city performance. State is derived from city and sales group, so treat it as indicative.') + `<div class="grid">
-    ${panel({span: 7, title: `${esc(st[0]?.label)} and ${esc(st[1]?.label ?? '')} book ${pct(((st[0]?.v26 ?? 0) + (st[1]?.v26 ?? 0)) / (T.v26 || 1), 0)} of value`, sub: 'Top 12 states by SS26 value. Select a state to filter.', body: seasonLegend + chart(w => pairBars(w, stTop, {dim: 'state'})), twin: {cols: [C.text('State', 'label'), C.lakh('SS25 ₹ L', 'a'), C.lakh('SS26 ₹ L', 'b')], rows: stTop}})}
+  return secHead('Geography', 'State and city performance in booking qty. State is derived from city and sales group, so treat it as indicative.') + `<div class="grid">
+    ${panel({span: 7, title: `${esc(st[0]?.label)} and ${esc(st[1]?.label ?? '')} book ${pct(((st[0]?.v26 ?? 0) + (st[1]?.v26 ?? 0)) / (T.v26 || 1), 0)} of qty`, sub: 'Top 12 states by SS26 qty. Select a state to filter.', body: seasonLegend + chart(w => pairBars(w, stTop, {dim: 'state'})), twin: {cols: [C.text('State', 'label'), C.lakh('SS25 ₹ L', 'a'), C.lakh('SS26 ₹ L', 'b')], rows: stTop}})}
     ${panel({span: 5, title: up[0] && dn[0] ? `${esc(up[0].label)} added ${money(up[0].dv)}. ${esc(dn[0].label)} lost ${money(-dn[0].dv)}` : 'State movers', sub: 'Largest state moves, in points of total growth.', body: chart(w => divBars(w, moverRows.map(s => ({label: s.label, v: s.cpp, tip: `${sMoney(s.dv)}, ${sPct(s.g)}`})), {dim: 'state'}))})}
     ${panel({title: 'State scorecard', sub: 'Select a row to filter the whole report.', body: table({cols: scoreCols('State'), rows: st, drill: 'state', total: {...T, label: 'Total', share: 1, cpp: T.g * 100}, csv: 'exotic-state-scorecard'})})}
-    ${panel({title: `Top ${Math.min(state.cityN || city.length, city.length)} cities hold ${pct(shown.reduce((s, c) => s + c.v26, 0) / (T.v26 || 1), 0)} of value, across ${num(city.filter(c => c.v26 > 0).length)} active cities`, sub: 'City spellings were combined where they are the same place. See Data notes.', body: cityCtl + table({cols: cityCols, rows: shown, csv: 'exotic-cities'})})}
-    ${panel({span: 7, title: mode === 'g' ? 'Growth by RSM and channel' : mode === 'act' ? 'Active dealers by RSM and channel' : mode === 'asp' ? 'ASP by RSM and channel' : 'Value by RSM and channel', sub: mf[3] + '. Blank means no bookings. Select a row to filter.', body: heatCtl + heatFor(rsmVals, 'rsm', 'rsm', chs.filter(c => c !== 'COCO'))})}
-    ${panel({span: 5, title: depend.length ? `${plural(depend.length, 'city')} above ₹25 L depend on one dealer for over half of value`.replace('citys', 'cities') : 'No city above ₹25 L depends on one dealer', sub: 'Local concentration can stay hidden when the national base is broad.', body: table({cols: [C.text('City', 'label'), C.lakh('SS26 ₹ L', 'v26'), C.pct('Largest dealer', 'topShare'), C.text('Dealer', r => clip(r.topName, 26))], rows: depend.slice(0, 12)})})}
-    ${panel({span: 7, title: mode === 'g' ? 'Growth by state and channel' : mode === 'act' ? 'Active dealers by state and channel' : mode === 'asp' ? 'ASP by state and channel' : 'Value by state and channel', sub: 'Top 15 states. The measure buttons above also control this table.', body: heatFor(st.slice(0, 15).map(s => s.label), 'state', 'state')})}
-    ${panel({span: 5, title: `${plural(gone.length, 'city')} stopped booking and ${plural(fresh.length, 'city')} started`.replace(/citys/g, 'cities'), sub: `Stopped: ${money(gone.reduce((s, c) => s + c.v25, 0))} in SS25. Started: ${money(fresh.reduce((s, c) => s + c.v26, 0))} in SS26. Largest of each below.`, body: table({cols: [C.text('City', 'label'), C.text('Move', r => r.v26 > 0 ? 'Started' : 'Stopped'), C.lakh('Value ₹ L', r => r.v26 || r.v25)], rows: [...gone.slice(0, 7), ...fresh.slice(0, 7)]})})}
+    ${panel({title: `Top ${Math.min(state.cityN || city.length, city.length)} cities hold ${pct(shown.reduce((s, c) => s + c.v26, 0) / (T.v26 || 1), 0)} of qty, across ${num(city.filter(c => c.v26 > 0).length)} active cities`, sub: 'City spellings were combined where they are the same place. See Data notes.', body: cityCtl + table({cols: cityCols, rows: shown, csv: 'exotic-cities'})})}
+    ${panel({span: 7, title: mode === 'g' ? 'Growth by RSM and channel' : mode === 'act' ? 'Active dealers by RSM and channel' : mode === 'asp' ? 'ASP by RSM and channel' : 'Qty by RSM and channel', sub: mf[3] + '. Blank means no bookings. Select a row to filter.', body: heatCtl + heatFor(rsmVals, 'rsm', 'rsm', chs.filter(c => c !== 'COCO'))})}
+    ${panel({span: 5, title: depend.length ? `${plural(depend.length, 'city')} above 2,500 units depend on one dealer for over half of qty`.replace('citys', 'cities') : 'No city above 2,500 units depends on one dealer', sub: 'Local concentration can stay hidden when the national base is broad.', body: table({cols: [C.text('City', 'label'), C.lakh('SS26 ₹ L', 'v26'), C.pct('Largest dealer', 'topShare'), C.text('Dealer', r => clip(r.topName, 26))], rows: depend.slice(0, 12)})})}
+    ${panel({span: 7, title: mode === 'g' ? 'Growth by state and channel' : mode === 'act' ? 'Active dealers by state and channel' : mode === 'asp' ? 'ASP by state and channel' : 'Qty by state and channel', sub: 'Top 15 states. The measure buttons above also control this table.', body: heatFor(st.slice(0, 15).map(s => s.label), 'state', 'state')})}
+    ${panel({span: 5, title: `${plural(gone.length, 'city')} stopped booking and ${plural(fresh.length, 'city')} started`.replace(/citys/g, 'cities'), sub: `Stopped: ${money(gone.reduce((s, c) => s + c.v25, 0))} in SS25. Started: ${money(fresh.reduce((s, c) => s + c.v26, 0))} in SS26. Largest of each below.`, body: table({cols: [C.text('City', 'label'), C.text('Move', r => r.v26 > 0 ? 'Started' : 'Stopped'), C.lakh('Qty', r => r.v26 || r.v25)], rows: [...gone.slice(0, 7), ...fresh.slice(0, 7)]})})}
   </div>`;
 }
 
@@ -628,12 +647,12 @@ function renderPrice(R, T) {
   const cap = v => Math.max(-1, Math.min(2, v));
   const top = chs[0], widest = chs.slice().sort((a, b) => (b.a26 ?? 0) - (a.a26 ?? 0));
   const rsS = rs.filter(r => r.a25 != null && r.a26 != null).sort((a, b) => b.a26 - a.a26);
-  return secHead('Channel and price', 'Price realisation by channel and region. ASP is value divided by qty, so it mixes price and product mix.') + `<div class="grid">
-    ${panel({title: `${esc(top?.label)} is ${pct(top?.share, 0)} of value. Like-for-like volume moved ${sMoney(top?.vol ?? 0)} and rate ${sMoney(top?.rate ?? 0)} in this channel`, sub: 'Channel scorecard with the like-for-like split. Select a row to filter.', body: table({cols: [C.text('Channel', 'label'), C.int('Active SS26', 'act26'), C.lakh('SS25 ₹ L', 'v25'), C.lakh('SS26 ₹ L', 'v26', {bar: 1}), C.pct('Growth', 'g'), C.pct('Share', 'share'), C.lakh('Lost ₹ L', r => -r.lostV), C.lakh('New ₹ L', 'newV'), C.lakh('LFL volume ₹ L', 'vol'), C.lakh('LFL rate ₹ L', 'rate'), C.asp('ASP SS25', 'a25'), C.asp('ASP SS26', 'a26'), C.pct('ASP change', 'da'), C.asp('Median dealer ASP', 'medAsp'), C.lakh('₹ L per dealer', 'perDealer')], rows: pv, drill: 'channel', total: {...T, label: 'Total', share: 1, medAsp: median(R.map(d => d.a26))}})})}
+  return secHead('Channel and price', 'Qty by channel, with price realisation. Qty is in units. ASP stays in ₹ per unit because it is a price. ASP is value divided by qty, so it mixes price and product mix.') + `<div class="grid">
+    ${panel({title: `${esc(top?.label)} is ${pct(top?.share, 0)} of qty. Like-for-like qty moved ${sMoney(top?.vol ?? 0)} in this channel`, sub: 'Channel scorecard in qty, with lost, new and like-for-like change. Select a row to filter.', body: table({cols: [C.text('Channel', 'label'), C.int('Active SS26', 'act26'), C.lakh('SS25 ₹ L', 'v25'), C.lakh('SS26 ₹ L', 'v26', {bar: 1}), C.pct('Growth', 'g'), C.pct('Share', 'share'), C.lakh('Lost ₹ L', r => -r.lostV), C.lakh('New ₹ L', 'newV'), C.lakh('LFL change ₹ L', 'vol'), C.asp('ASP SS25', 'a25'), C.asp('ASP SS26', 'a26'), C.pct('ASP change', 'da'), C.asp('Median dealer ASP', 'medAsp'), C.lakh('₹ L per dealer', 'perDealer')], rows: pv, drill: 'channel', total: {...T, label: 'Total', share: 1, medAsp: median(R.map(d => d.a26))}})})}
     ${panel({span: 6, title: `${esc(widest[0]?.label)} has the highest ASP at ₹${num(widest[0]?.a26)}. ${esc(widest[widest.length - 1]?.label)} has the lowest at ₹${num(widest[widest.length - 1]?.a26)}`, sub: 'ASP by channel. The grey dot is SS25 and the blue dot is SS26.', body: seasonLegend + chart(w => dumbbell(w, chs.map(c => ({label: c.label, a: c.a25, b: c.a26})), {dim: 'channel'}))})}
     ${panel({span: 6, title: rsS.length ? `${esc(rsS[0].label)} realises the most at ₹${num(rsS[0].a26)}` : 'ASP by RSM', sub: 'ASP by RSM, highest first.', body: seasonLegend + chart(w => dumbbell(w, rsS.map(c => ({label: c.label, a: c.a25, b: c.a26})), {dim: 'rsm'}))})}
-    ${panel({span: 6, title: `Value at ASP of ₹900 or more moved from ${pct(prem25, 0)} to ${pct(prem26, 0)} of the book`, sub: 'Booking value by dealer ASP band.', body: seasonLegend + chart(w => columns(w, hist, {fmt: money, yFmt: axisMoney, H: 280})) + `<div style="margin-top:12px">${table({cols: [C.text('ASP band', 'label', {nosort: 1}), C.int('Dealers SS25', 'n25', {nosort: 1}), C.int('Dealers SS26', 'n26', {nosort: 1}), C.lakh('SS25 ₹ L', 'a', {nosort: 1}), C.lakh('SS26 ₹ L', 'b', {nosort: 1})], rows: hist})}</div>`})}
-    ${panel({span: 6, title: `${pct(qd[2].sh, 0)} of continuing dealers booked less qty at a higher ASP, losing ${money(-qd[2].dv)}`, sub: `Continuing dealers split by qty and ASP direction. Rank correlation of qty change and ASP change is ${elastic == null ? 'not available' : elastic.toFixed(2)}.`, body: table({cols: [C.text('Move', 'label', {nosort: 1}), C.int('Dealers', 'n', {nosort: 1}), C.pct('Share', 'sh', {nosort: 1}), C.lakh('Change ₹ L', 'dv', {nosort: 1})], rows: qd}) + `<div style="margin-top:10px">${chart(w => scatter(w, cont.map(d => ({x: cap(d.dq), y: Math.max(-.5, Math.min(.5, d.da)), r: 3, op: .45, tip: [d.name, `${d.city}, ${d.channel}`, `Qty ${sPct(d.dq)}`, `ASP ${sPct(d.da)}`, `Change ${sMoney(d.dv)}`]})), {x0: -1, x1: 2, y0: -.5, y1: .5, xt: [-1, -.5, 0, .5, 1, 1.5, 2], yt: [-.5, -.25, 0, .25, .5], xf: v => pct(v, 0), yf: v => pct(v, 0), xTitle: 'Qty change (capped at +200%)', yTitle: 'ASP change (capped at ±50%)', xRef: 0, yRef: 0, H: 280, aria: 'Dealer qty change against ASP change'}))}</div>`, note: elastic != null && Math.abs(elastic) < .2 ? 'Qty change and ASP change show almost no link at dealer level, so a higher ASP does not by itself predict lower volume in this data.' : 'ASP and qty moved together at dealer level. This file cannot separate price from product mix.'})}
+    ${panel({span: 6, title: `Qty at ASP of ₹900 or more moved from ${pct(prem25, 0)} to ${pct(prem26, 0)} of the book`, sub: 'Booking qty by dealer ASP band.', body: seasonLegend + chart(w => columns(w, hist, {fmt: money, yFmt: axisMoney, H: 280})) + `<div style="margin-top:12px">${table({cols: [C.text('ASP band', 'label', {nosort: 1}), C.int('Dealers SS25', 'n25', {nosort: 1}), C.int('Dealers SS26', 'n26', {nosort: 1}), C.lakh('SS25 ₹ L', 'a', {nosort: 1}), C.lakh('SS26 ₹ L', 'b', {nosort: 1})], rows: hist})}</div>`})}
+    ${panel({span: 6, title: `${pct(qd[2].sh, 0)} of continuing dealers booked less qty at a higher ASP, giving up ${money(-qd[2].dv)}`, sub: `Continuing dealers split by qty and ASP direction. Rank correlation of qty change and ASP change is ${elastic == null ? 'not available' : elastic.toFixed(2)}.`, body: table({cols: [C.text('Move', 'label', {nosort: 1}), C.int('Dealers', 'n', {nosort: 1}), C.pct('Share', 'sh', {nosort: 1}), C.lakh('Change ₹ L', 'dv', {nosort: 1})], rows: qd}) + `<div style="margin-top:10px">${chart(w => scatter(w, cont.map(d => ({x: cap(d.dq), y: Math.max(-.5, Math.min(.5, d.da)), r: 3, op: .45, tip: [d.name, `${d.city}, ${d.channel}`, `Qty ${sPct(d.dq)}`, `ASP ${sPct(d.da)}`, `Change ${sMoney(d.dv)}`]})), {x0: -1, x1: 2, y0: -.5, y1: .5, xt: [-1, -.5, 0, .5, 1, 1.5, 2], yt: [-.5, -.25, 0, .25, .5], xf: v => pct(v, 0), yf: v => pct(v, 0), xTitle: 'Qty change (capped at +200%)', yTitle: 'ASP change (capped at ±50%)', xRef: 0, yRef: 0, H: 280, aria: 'Dealer qty change against ASP change'}))}</div>`, note: elastic != null && Math.abs(elastic) < .2 ? 'Qty change and ASP change show almost no link at dealer level, so a higher ASP does not by itself predict lower volume in this data.' : 'ASP and qty moved together at dealer level. This file cannot separate price from product mix.'})}
   </div>`;
 }
 
@@ -649,10 +668,10 @@ function renderRetention(R, T) {
   const statusParts = chs.map(c => ({label: c.label, parts: {Continuing: c.cont, Lost: c.lost, New: c.neu}, fmt: v => plural(v, 'dealer')}));
   const SC = {Continuing: 'var(--s26)', Lost: 'var(--loss)', New: 'var(--c3)'};
   const lowest = rs.filter(r => r.logo != null).sort((a, b) => a.logo - b.logo)[0];
-  return secHead('Retention', 'Whether dealers came back, and what they did when they did. Lost means no booking in this file, so a Lost dealer can still buy other lines.') + `<div class="grid">
+  return secHead('Retention', 'Whether dealers came back, and what qty they booked when they did. NRR and GRR here are qty retention. Lost means no booking in this file, so a Lost dealer can still buy other lines.') + `<div class="grid">
     ${panel({span: 6, title: chs.length > 1 ? `${esc(chs.slice().sort((a, b) => (a.logo ?? 2) - (b.logo ?? 2))[0].label)} keeps the fewest dealers, ${pct(chs.slice().sort((a, b) => (a.logo ?? 2) - (b.logo ?? 2))[0].logo, 0)} of its SS25 base` : 'Dealer status', sub: 'Share of dealers in each channel by status.', body: segbars(statusParts, ['Continuing', 'Lost', 'New'], k => SC[k]) + `<div style="margin-top:14px">${table({cols: [C.text('Channel', 'label'), C.pct('Dealer retention', 'logo'), C.pct('NRR', 'nrr'), C.pct('GRR', 'grr'), C.pct('LFL growth', 'lfl'), C.lakh('Lost ₹ L', 'lostV'), C.lakh('New ₹ L', 'newV')], rows: chs, drill: 'channel'})}</div>`})}
-    ${panel({span: 6, title: smallest && largest && smallest !== largest ? `Retention by size: ${pct(smallest.logo, 0)} in the smallest band, ${pct(largest.logo, 0)} in the largest` : 'Retention by size', sub: 'SS25 size band. Differences in LFL growth between bands partly reflect regression to the mean.', body: table({cols: [C.text('SS25 band', 'label', {nosort: 1}), C.int('Dealers', 'n', {nosort: 1}), C.lakh('SS25 ₹ L', 'v25', {nosort: 1}), C.pct('Dealer retention', 'logo', {nosort: 1}), C.pct('NRR', 'nrr', {nosort: 1}), C.pct('GRR', 'grr', {nosort: 1}), C.pct('LFL growth', 'lfl', {nosort: 1})], rows: bands}) + `<div style="margin-top:14px">${table({cols: [{h: 'Dealer type', v: r => r[0], nosort: 1}, {h: 'Dealers', n: 1, v: r => r[1], f: x => num(x), nosort: 1}, {h: 'Average value', n: 1, v: r => r[2], f: x => money(x), nosort: 1}], rows: [['Continuing (SS26)', T.cont, avgCont], ['New (SS26)', T.neu, avgNew], ['Lost (SS25)', T.lost, avgLost]]})}</div>`, note: avgNew != null && avgCont != null && avgNew < avgCont ? `A new dealer books ${pct(1 - avgNew / avgCont, 0)} less than a continuing dealer on average, so holding value through replacement needs a steady flow of new dealers.` : ''})}
-    ${panel({span: 7, title: rho != null ? `Dealer rank mostly carries over between seasons (rank correlation ${rho.toFixed(2)})` : 'Season against season', sub: `Continuing dealers. Dots above the diagonal grew. Median dealer ${sPct(medG)}. ${num(grew)} grew, ${num(fl)} stayed within ±5%, ${num(fell)} declined. Log scales.`, body: chart(w => scatter(w, cont.map(d => ({x: d.v25, y: d.v26, r: 3.2, c: d.dv < 0 ? 'var(--loss)' : 'var(--gain)', op: .5, tip: [d.name, `${d.city}, ${d.asm}`, `SS25 ${money(d.v25)}`, `SS26 ${money(d.v26)}`, sPct(d.g)]})), {xLog: 1, yLog: 1, x0: 3, x1: 7.2, y0: 3, y1: 7.2, xt: [1e3, 1e4, 1e5, 1e6, 1e7], yt: [1e3, 1e4, 1e5, 1e6, 1e7], xf: v => '₹' + axisMoney(v), yf: v => '₹' + axisMoney(v), xTitle: 'SS25 value (log scale)', yTitle: 'SS26 value (log scale)', diag: [1e3, 10 ** 7.2], H: 400, aria: 'Dealer SS25 value against SS26 value'}))})}
+    ${panel({span: 6, title: smallest && largest && smallest !== largest ? `Retention by size: ${pct(smallest.logo, 0)} in the smallest band, ${pct(largest.logo, 0)} in the largest` : 'Retention by size', sub: 'SS25 size band. Differences in LFL growth between bands partly reflect regression to the mean.', body: table({cols: [C.text('SS25 band', 'label', {nosort: 1}), C.int('Dealers', 'n', {nosort: 1}), C.lakh('SS25 ₹ L', 'v25', {nosort: 1}), C.pct('Dealer retention', 'logo', {nosort: 1}), C.pct('NRR', 'nrr', {nosort: 1}), C.pct('GRR', 'grr', {nosort: 1}), C.pct('LFL growth', 'lfl', {nosort: 1})], rows: bands}) + `<div style="margin-top:14px">${table({cols: [{h: 'Dealer type', v: r => r[0], nosort: 1}, {h: 'Dealers', n: 1, v: r => r[1], f: x => num(x), nosort: 1}, {h: 'Average qty', n: 1, v: r => r[2], f: x => money(x), nosort: 1}], rows: [['Continuing (SS26)', T.cont, avgCont], ['New (SS26)', T.neu, avgNew], ['Lost (SS25)', T.lost, avgLost]]})}</div>`, note: avgNew != null && avgCont != null && avgNew < avgCont ? `A new dealer books ${pct(1 - avgNew / avgCont, 0)} less qty than a continuing dealer on average, so holding qty through replacement needs a steady flow of new dealers.` : ''})}
+    ${panel({span: 7, title: rho != null ? `Dealer rank mostly carries over between seasons (rank correlation ${rho.toFixed(2)})` : 'Season against season', sub: `Continuing dealers. Dots above the diagonal grew. Median dealer ${sPct(medG)}. ${num(grew)} grew, ${num(fl)} stayed within ±5%, ${num(fell)} declined. Log scales.`, body: chart(w => scatter(w, cont.map(d => ({x: d.v25, y: d.v26, r: 3.2, c: d.dv < 0 ? 'var(--loss)' : 'var(--gain)', op: .5, tip: [d.name, `${d.city}, ${d.asm}`, `SS25 ${money(d.v25)}`, `SS26 ${money(d.v26)}`, sPct(d.g)]})), {xLog: 1, yLog: 1, x0: 0, x1: 4.3, y0: 0, y1: 4.3, xt: [1, 10, 100, 1e3, 1e4], yt: [1, 10, 100, 1e3, 1e4], xf: v => axisMoney(v), yf: v => axisMoney(v), xTitle: 'SS25 qty (log scale)', yTitle: 'SS26 qty (log scale)', diag: [1, 10 ** 4.3], H: 400, aria: 'Dealer SS25 qty against SS26 qty'}))})}
     ${panel({span: 5, title: lowest ? `${esc(lowest.label)} has the lowest dealer retention at ${pct(lowest.logo, 0)}` : 'Retention by RSM', sub: 'Select a row to filter.', body: table({cols: [C.text('RSM', 'label'), C.pct('Dealer retention', 'logo'), C.pct('NRR', 'nrr'), C.pct('GRR', 'grr'), C.int('Lost', 'lost'), C.int('New', 'neu')], rows: rs, drill: 'rsm', total: {...T, label: 'Total'}})})}
   </div>`;
 }
@@ -661,10 +680,10 @@ function listsFor(R) {
   const trade = R.filter(d => d.actionable);
   const channelMed = new Map(); for (const [k, g] of groupBy(DEALERS, 'channel')) channelMed.set(k, median(g.filter(d => d.v26 > 0).map(d => d.a26)));
   const win = trade.filter(d => d.status === 'Lost').sort((a, b) => b.v25 - a.v25);
-  const risk = trade.filter(d => d.status === 'Continuing' && d.v25 >= state.riskBase && d.g <= -state.riskDrop).sort((a, b) => a.dv - b.dv);
-  const rise = trade.filter(d => d.status === 'Continuing' && d.v25 >= state.riseBase && d.g >= state.riseGain).sort((a, b) => b.dv - a.dv);
+  const risk = trade.filter(d => d.status === 'Continuing' && d.v25 >= th('riskBase') && d.g <= -state.riskDrop).sort((a, b) => a.dv - b.dv);
+  const rise = trade.filter(d => d.status === 'Continuing' && d.v25 >= th('riseBase') && d.g >= state.riseGain).sort((a, b) => b.dv - a.dv);
   const fresh = trade.filter(d => d.status === 'New').sort((a, b) => b.v26 - a.v26);
-  const price = trade.filter(d => d.v26 >= state.priceBase && d.a26 < channelMed.get(d.channel) * (1 - state.priceGap)).map(d => ({...d, med: channelMed.get(d.channel), gap: (channelMed.get(d.channel) - d.a26) * d.q26})).sort((a, b) => b.gap - a.gap);
+  const price = trade.filter(d => d.v26 >= th('priceBase') && d.a26 < channelMed.get(d.channel) * (1 - state.priceGap)).map(d => ({...d, med: channelMed.get(d.channel), gap: (channelMed.get(d.channel) - d.a26) * d.q26})).sort((a, b) => b.gap - a.gap);
   return {win, risk, rise, fresh, price};
 }
 function actionPools(R) {
@@ -673,24 +692,26 @@ function actionPools(R) {
 }
 function renderActions(R, T) {
   const l = listsFor(R), a = actionPools(R);
-  const win = a.win.v * state.lv.win / 100, risk = a.risk.v * state.lv.risk / 100, gap = a.gap.v * state.lv.price / 100, tot = win + risk + gap, pro = T.v26 + tot;
+  /* In qty mode the price-gap pool is rupees, so it is left out of the qty levers. */
+  const win = a.win.v * state.lv.win / 100, risk = a.risk.v * state.lv.risk / 100, gap = QTY ? 0 : a.gap.v * state.lv.price / 100, tot = win + risk + gap, pro = T.v26 + tot;
+  const priceQty = l.price.reduce((s, d) => s + d.v26, 0);
   const sl = (k, label, v, hint) => `<label class="slider"><span>${label}</span><b id="lv-${k}">${v}%</b><input type="range" min="0" max="100" step="5" value="${v}" data-lv="${k}" aria-label="${esc(label)}"><small>${hint}</small></label>`;
   const defs = {
-    winback: ['Win-back', l.win, `${plural(l.win.length, 'trade dealer')} worth ${money(a.win.v)} did not rebook. Start with the largest.`, [...dealerCols().filter(c => c.h !== 'Growth' && c.h !== 'Change ₹ L' && c.h !== 'ASP SS26' && c.h !== 'SS26 ₹ L'), C.asp('ASP SS25', 'a25'), reviewCol]],
-    risk: ['At risk', l.risk, `${plural(l.risk.length, 'dealer')} fell ${pct(state.riskDrop, 0)} or more from at least ${money(state.riskBase)}, costing ${money(a.risk.v)}.`, [...dealerCols(), reviewCol]],
-    rise: ['Rising', l.rise, `${plural(l.rise.length, 'dealer')} grew ${pct(state.riseGain, 0)} or more from at least ${money(state.riseBase)}, adding ${money(l.rise.reduce((s, d) => s + d.dv, 0))}. Learn what worked here.`, [...dealerCols(), reviewCol]],
-    fresh: ['New', l.fresh, `${plural(l.fresh.length, 'new trade dealer')} brought ${money(l.fresh.reduce((s, d) => s + d.v26, 0))}. Protect these in the next season.`, [...dealerCols().filter(c => c.h !== 'Growth' && c.h !== 'SS25 ₹ L' && c.h !== 'Change ₹ L'), reviewCol]],
-    price: ['Price', l.price, `${plural(l.price.length, 'dealer')} sit ${pct(state.priceGap, 0)} or more below their channel median ASP. The gap is ${money(a.gap.v)}, and part of it is product mix.`, [...dealerCols().filter(c => c.h !== 'Growth' && c.h !== 'Change ₹ L' && c.h !== 'SS25 ₹ L'), C.asp('Channel median ASP', 'med'), C.lakh('Gap ₹ L', 'gap'), reviewCol]],
+    winback: ['Win-back', l.win, `${plural(l.win.length, 'trade dealer')} with ${money(a.win.v)} in SS25 did not rebook. Start with the largest.`, [...dealerCols().filter(c => c.h !== 'Growth' && hid(c) !== 'Change ₹ L' && c.h !== 'ASP SS26' && hid(c) !== 'SS26 ₹ L'), C.asp('ASP SS25', 'a25'), reviewCol]],
+    risk: ['At risk', l.risk, `${plural(l.risk.length, 'dealer')} fell ${pct(state.riskDrop, 0)} or more from at least ${money(th('riskBase'))}, down ${money(a.risk.v)}.`, [...dealerCols(), reviewCol]],
+    rise: ['Rising', l.rise, `${plural(l.rise.length, 'dealer')} grew ${pct(state.riseGain, 0)} or more from at least ${money(th('riseBase'))}, adding ${money(l.rise.reduce((s, d) => s + d.dv, 0))}. Learn what worked here.`, [...dealerCols(), reviewCol]],
+    fresh: ['New', l.fresh, `${plural(l.fresh.length, 'new trade dealer')} brought ${money(l.fresh.reduce((s, d) => s + d.v26, 0))}. Protect these in the next season.`, [...dealerCols().filter(c => c.h !== 'Growth' && hid(c) !== 'SS25 ₹ L' && hid(c) !== 'Change ₹ L'), reviewCol]],
+    price: ['Price', l.price, `${plural(l.price.length, 'dealer')} sit ${pct(state.priceGap, 0)} or more below their channel median ASP and booked ${money(priceQty)} in SS26. Part of the gap is product mix.`, [...dealerCols().filter(c => c.h !== 'Growth' && hid(c) !== 'Change ₹ L' && hid(c) !== 'SS25 ₹ L'), C.asp('Channel median ASP', 'med'), reviewCol]],
   };
   const cur = defs[state.list];
   const thresholds = {
-    risk: `<label>Minimum SS25 value (₹)<input type="number" step="50000" min="0" value="${state.riskBase}" data-th="riskBase"></label><label>Minimum decline (%)<input type="number" step="5" min="0" max="100" value="${state.riskDrop * 100}" data-th="riskDrop" data-pct="1"></label>`,
-    rise: `<label>Minimum SS25 value (₹)<input type="number" step="50000" min="0" value="${state.riseBase}" data-th="riseBase"></label><label>Minimum growth (%)<input type="number" step="5" min="0" value="${state.riseGain * 100}" data-th="riseGain" data-pct="1"></label>`,
-    price: `<label>Minimum SS26 value (₹)<input type="number" step="50000" min="0" value="${state.priceBase}" data-th="priceBase"></label><label>Minimum gap to median (%)<input type="number" step="5" min="0" max="100" value="${state.priceGap * 100}" data-th="priceGap" data-pct="1"></label>`,
+    risk: `<label>Minimum SS25 qty<input type="number" step="50" min="0" value="${th('riskBase')}" data-th="riskBase"></label><label>Minimum decline (%)<input type="number" step="5" min="0" max="100" value="${state.riskDrop * 100}" data-th="riskDrop" data-pct="1"></label>`,
+    rise: `<label>Minimum SS25 qty<input type="number" step="50" min="0" value="${th('riseBase')}" data-th="riseBase"></label><label>Minimum growth (%)<input type="number" step="5" min="0" value="${state.riseGain * 100}" data-th="riseGain" data-pct="1"></label>`,
+    price: `<label>Minimum SS26 qty<input type="number" step="50" min="0" value="${th('priceBase')}" data-th="priceBase"></label><label>Minimum gap to median (%)<input type="number" step="5" min="0" max="100" value="${state.priceGap * 100}" data-th="priceGap" data-pct="1"></label>`,
   }[state.list] || '';
-  return secHead('Actions', 'Named dealer lists and a simple sizing of what they could be worth. COCO stores and delisted codes are left out.') + `<div class="grid">
-    ${panel({span: 5, title: `These three levers could add ${money(tot)} at the rates set here`, sub: 'Illustrative arithmetic, not a forecast. Move the sliders to your own view.', body: sl('win', 'Win back lost dealers', state.lv.win, `Pool: ${money(a.win.v)}`) + sl('risk', 'Recover at-risk dealers', state.lv.risk, `Pool: ${money(a.risk.v)}`) + sl('price', 'Close price gaps', state.lv.price, `Pool: ${money(a.gap.v)}`)})}
-    ${panel({span: 7, title: `Pro forma SS26: ${money(pro)}, ${sPct(T.v25 ? pro / T.v25 - 1 : null)} against SS25`, sub: 'Actual SS26 value plus the three levers above.', body: chart(w => bridge(w, [{label: 'SS26 actual', v: T.v26, total: 1, fill: 'var(--s26)'}, {label: 'Win back lost dealers', v: win}, {label: 'Recover at-risk dealers', v: risk}, {label: 'Close price gaps', v: gap}, {label: 'Pro forma', v: pro, total: 1, fill: 'var(--ink2)'}]))})}
+  return secHead('Actions', 'Named dealer lists and a simple sizing of the qty they could add. COCO stores and delisted codes are left out.') + `<div class="grid">
+    ${panel({span: 5, title: `These two levers could add ${money(tot)} at the rates set here`, sub: 'Illustrative arithmetic, not a forecast. Move the sliders to your own view.', body: sl('win', 'Win back lost dealers', state.lv.win, `Pool: ${money(a.win.v)}`) + sl('risk', 'Recover at-risk dealers', state.lv.risk, `Pool: ${money(a.risk.v)}`)})}
+    ${panel({span: 7, title: `Pro forma SS26: ${money(pro)}, ${sPct(T.v25 ? pro / T.v25 - 1 : null)} against SS25`, sub: 'Actual SS26 qty plus the two levers above. Price gaps are a rupee lever, so they are not in this qty view.', body: chart(w => bridge(w, [{label: 'SS26 actual', v: T.v26, total: 1, fill: 'var(--s26)'}, {label: 'Win back lost dealers', v: win}, {label: 'Recover at-risk dealers', v: risk}, {label: 'Pro forma', v: pro, total: 1, fill: 'var(--ink2)'}]))})}
     ${panel({title: `${esc(cur[0])}: ${esc(cur[2])}`, sub: 'Dealers marked with a flag have a data question. See Data notes before acting.', body: `<div class="row"><div class="seg" role="group" aria-label="Action list">${Object.entries(defs).map(([k, v]) => `<button type="button" data-listtab="${k}" aria-pressed="${state.list === k}">${esc(v[0])} (${num(v[1].length)})</button>`).join('')}</div>${thresholds}</div>` + table({cols: cur[3], rows: cur[1], pageSize: 25, csv: `exotic-action-${state.list}`})})}
   </div>`;
 }
@@ -699,7 +720,7 @@ function renderAll(R) {
   const q = state.q.trim().toUpperCase();
   const rows = R.filter(d => (!q || d.search.includes(q)) && (!state.st || d.status === state.st)).slice().sort((a, b) => b.v26 - a.v26 || b.v25 - a.v25);
   const cols = [C.text('Buyer no.', 'buyers'), C.text('Dealer', 'name'), C.text('City', 'city'), C.text('State', 'state'), C.text('ASM', 'asm'), C.text('RSM', 'rsm'), C.text('Channel', 'channel'), C.lakh('SS25 ₹ L', 'v25'), C.lakh('SS26 ₹ L', 'v26'), C.lakh('Change ₹ L', 'dv'), C.pct('Growth', 'g'), C.asp('ASP SS25', 'a25'), C.asp('ASP SS26', 'a26'), C.text('Status', 'status'), reviewCol];
-  return secHead('All dealers', 'Search every dealer in the current filter, then download the result.') + `<div class="grid">${panel({title: `${num(rows.length)} dealers with ${money(rows.reduce((s, d) => s + d.v26, 0))} of SS26 value`, body: `<div class="row"><label>Search name, city, ASM or buyer no.<input type="search" id="q" value="${esc(state.q)}" placeholder="For example PATNA"></label><label>Status<select id="st">${['', 'Continuing', 'New', 'Lost'].map(s => `<option value="${s}" ${state.st === s ? 'selected' : ''}>${s || 'All'}</option>`).join('')}</select></label></div>` + table({cols, rows, pageSize: 50, csv: 'exotic-dealers'})})}</div>`;
+  return secHead('All dealers', 'Search every dealer in the current filter, then download the result. Qty in units, ASP in ₹ per unit.') + `<div class="grid">${panel({title: `${num(rows.length)} dealers with ${money(rows.reduce((s, d) => s + d.v26, 0))} of SS26 qty`, body: `<div class="row"><label>Search name, city, ASM or buyer no.<input type="search" id="q" value="${esc(state.q)}" placeholder="For example PATNA"></label><label>Status<select id="st">${['', 'Continuing', 'New', 'Lost'].map(s => `<option value="${s}" ${state.st === s ? 'selected' : ''}>${s || 'All'}</option>`).join('')}</select></label></div>` + table({cols, rows, pageSize: 50, csv: 'exotic-dealers'})})}</div>`;
 }
 
 function renderNotes(T) {
@@ -736,13 +757,14 @@ function renderNav() {
 }
 function render() {
   charts.clear(); tables.clear(); uid = 0;
+  QTY = state.section !== 'summary' && state.section !== 'notes'; BANDS = QTY ? QBANDS : VBANDS;
   const R = view(), T = roll(R), K = concentration(R);
   renderNav(); renderFilters(R, T);
   const el = document.getElementById('content');
   if (!R.length && state.section !== 'notes') { el.innerHTML = `<div class="empty">No dealers match these filters. Select Reset filters to see all dealers.</div>`; return; }
   const s = state.section;
   el.innerHTML = s === 'summary' ? renderSummary(R, T, K) : s === 'dealers' ? renderDealers(R, T, K) : s === 'team' ? renderTeam(R, T) : s === 'geo' ? renderGeo(R, T) : s === 'price' ? renderPrice(R, T) : s === 'retention' ? renderRetention(R, T) : s === 'actions' ? renderActions(R, T) : s === 'all' ? renderAll(R) : renderNotes(T);
-  el.insertAdjacentHTML('beforeend', `<p class="source">Source: Exotic Booking Data.xlsx, 1,253 rows, ${num(DEALERS.length)} dealers after combining shared S4HANA codes. Value shown in ₹ by assumption. Built 5 November 2026.</p>`);
+  el.insertAdjacentHTML('beforeend', `<p class="source">Source: Exotic Booking Data.xlsx, 1,253 rows, ${num(DEALERS.length)} dealers after combining shared S4HANA codes. ${QTY ? 'This page compares booking qty in units. Summary shows value in ₹ by assumption.' : 'Value shown in ₹ by assumption.'} Built 5 November 2026, qty view added 11 November 2026.</p>`);
   mount(); wire();
   window.__metrics = {T, K, section: s};
 }
@@ -757,7 +779,7 @@ function wire() {
   document.querySelectorAll('[data-listtab]').forEach(b => b.onclick = () => { state.list = b.dataset.listtab; render(); });
   document.querySelectorAll('[data-list]').forEach(b => b.onclick = () => { state.list = b.dataset.list; go('actions'); });
   document.querySelectorAll('[data-lv]').forEach(i => { i.onchange = () => { state.lv[i.dataset.lv] = +i.value; render(); }; i.oninput = () => { const o = document.getElementById('lv-' + i.dataset.lv); if (o) o.textContent = i.value + '%'; }; });
-  document.querySelectorAll('[data-th]').forEach(i => i.onchange = () => { const v = +i.value; if (!isFinite(v) || v < 0) return; state[i.dataset.th] = i.dataset.pct ? v / 100 : v; render(); });
+  document.querySelectorAll('[data-th]').forEach(i => i.onchange = () => { const v = +i.value; if (!isFinite(v) || v < 0) return; const tgt = QTY && i.dataset.th in state.qth ? state.qth : state; tgt[i.dataset.th] = i.dataset.pct ? v / 100 : v; render(); });
   document.querySelectorAll('[data-twin]').forEach(b => b.onclick = () => { const p = b.dataset.twin, a = document.getElementById(p + 'a'), t = document.getElementById(p + 'b'); const showTable = t.hidden; t.hidden = !showTable; a.hidden = showTable; b.textContent = showTable ? 'Show chart' : 'Show table'; b.setAttribute('aria-expanded', String(showTable)); if (!showTable) mount(); });
 }
 document.addEventListener('click', e => { const t = e.target.closest('[data-drill]'); if (t) { const [k, v] = t.dataset.drill.split('|'); if (v) { state.f[k] = String(state.f[k]) === String(v) ? '' : v; render(); } } });
